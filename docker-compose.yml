@@ -1,0 +1,63 @@
+version: '3.4'
+services:
+  app:
+    build: .
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
+      - WEAVIATE_URL=${WEAVIATE_URL}
+      #- WEAVIATE_URL=${WEAVIATE_CLOUD_URL}
+      - PDF_LOCATION=${PDF_LOCATION}
+    depends_on:
+      - weaviate
+  weaviate:
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8080'
+      - --scheme
+      - http
+    image: semitechnologies/weaviate
+    ports:
+      - 8080:8080
+    restart: on-failure
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    environment:
+      OPENAI_APIKEY: ${OPENAI_API_KEY}
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      ENABLE_MODULES: 'text2vec-openai,generative-openai'
+      CLUSTER_HOSTNAME: 'node1'
+      PROMETHEUS_MONITORING_ENABLED: 'true'
+  prometheus:
+    image: prom/prometheus:v2.36.2
+    volumes:
+      - ./prometheus:/etc/prometheus/
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - 9090:9090
+  grafana:
+    image: grafana/grafana-oss
+    ports:
+      - 3000:3000
+    volumes:
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml
+      - ./grafana/dashboard_provider.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+volumes:
+  weaviate_data:
+  prometheus_data:
+#networks:
+#  mynet:
+#    driver: bridge

@@ -1,0 +1,17 @@
+langchain
+weaviate-client
+pathlib
+tqdm
+openai
+
+unstructured
+libmagic # (filetype detection)
+poppler-utils # (images and PDFs)
+#tesseract-ocr # (images and PDFs)
+pandoc # (EPUBs, RTFs and Open Office docs)
+unstructured_inference
+pytesseract
+pdf2image
+pdfminer-six
+numpy
+nltk

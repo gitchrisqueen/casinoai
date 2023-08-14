@@ -1,0 +1,37 @@
+@startuml
+participant "Knowledge Base" as KB
+participant "LangChain" as LC
+participant "Weaviate" as W
+participant "User" as U
+participant "OpenAI" as OAI
+participant "Game Interface" as GI
+
+KB -> LC: Load Files from Directory
+activate LC
+LC -> W: Store Information in Weaviate
+activate W
+W --> LC: Confirmation
+deactivate W
+deactivate LC
+
+U -> GI: Start Game
+activate GI
+GI -> LC: Detect Game Status
+activate LC
+LC -> W: Retrieve Strategy from Knowledge Base
+activate W
+W --> LC: Return Strategy
+deactivate W
+LC -> OAI: Evaluate Strategy
+activate OAI
+OAI --> LC: Adjusted Strategy
+deactivate OAI
+LC --> GI: Play Using Strategy
+deactivate LC
+GI -> W: Store Game Data Outcome
+activate W
+W --> GI: Confirmation
+deactivate W
+GI --> U: Display Game Outcome
+deactivate GI
+@enduml
