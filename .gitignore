@@ -139,6 +139,5 @@ dmypy.json
 cython_debug/
 
 #Pdf Files
-/pdf/Casino_Guides/*
-/pdfs/Embodiment Celestrial/
-/pdfs/mastering-the-ucc.pdf
+/pdf/*
+/pdfs_structured_output/*

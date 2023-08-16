@@ -1,37 +1,41 @@
+
 @startuml
-participant "Knowledge Base" as KB
-participant "LangChain" as LC
-participant "Weaviate" as W
-participant "User" as U
-participant "OpenAI" as OAI
-participant "Game Interface" as GI
 
-KB -> LC: Load Files from Directory
-activate LC
-LC -> W: Store Information in Weaviate
-activate W
-W --> LC: Confirmation
-deactivate W
-deactivate LC
+package "LangChain Casino Game Agent" {
 
-U -> GI: Start Game
-activate GI
-GI -> LC: Detect Game Status
-activate LC
-LC -> W: Retrieve Strategy from Knowledge Base
-activate W
-W --> LC: Return Strategy
-deactivate W
-LC -> OAI: Evaluate Strategy
-activate OAI
-OAI --> LC: Adjusted Strategy
-deactivate OAI
-LC --> GI: Play Using Strategy
-deactivate LC
-GI -> W: Store Game Data Outcome
-activate W
-W --> GI: Confirmation
-deactivate W
-GI --> U: Display Game Outcome
-deactivate GI
+    class "KnowledgeBaseAgent" {
+        + store_game_rules(rules: List[str])
+        + update_knowledge_base(new_data: Dict)
+    }
+
+    class "GameStrategyAgent" {
+        + analyze_game_state(game_state: Dict) : Dict
+        + recommend_next_move(analysis: Dict) : str
+    }
+
+    class "BettingStrategyAgent" {
+        + analyze_financial_position(finances: Dict) : Dict
+        + determine_bet_amount(game_risk_level: float, financial_analysis: Dict) : float
+    }
+
+    class "GameInterpreterAgent" {
+        + parse_game_output(game_output: str) : Dict
+        + translate_outcome(raw_outcome: str) : Dict
+    }
+
+    class "GamePlayingAgent" {
+        + start_game()
+        + execute_move(move: str)
+        + place_bet(bet_amount: float)
+    }
+
+    ' Relationships
+    "GamePlayingAgent" --> "GameStrategyAgent" : Uses >
+    "GamePlayingAgent" --> "BettingStrategyAgent" : Uses >
+    "GamePlayingAgent" --> "GameInterpreterAgent" : Uses >
+
+    "GameStrategyAgent" --> "KnowledgeBaseAgent" : Consults >
+    "BettingStrategyAgent" --> "KnowledgeBaseAgent" : Consults >
+}
+
 @enduml

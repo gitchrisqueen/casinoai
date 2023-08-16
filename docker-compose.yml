@@ -9,8 +9,18 @@ services:
       - WEAVIATE_URL=${WEAVIATE_URL}
       #- WEAVIATE_URL=${WEAVIATE_CLOUD_URL}
       - PDF_LOCATION=${PDF_LOCATION}
+      - PDF_STRUCTURED_LOCATION=${PDF_STRUCTURED_LOCATION}
+      - UNSTRUCTURED_PORT=${UNSTRUCTURED_PORT}
+      - UNSTRUCTURED_CONTAINER_PORT=${UNSTRUCTURED_CONTAINER_PORT}
     depends_on:
       - weaviate
+      - unstructured
+    volumes:
+      - ./${PDF_STRUCTURED_LOCATION}:/usr/src/app/${PDF_STRUCTURED_LOCATION} # Need to map the structured files to persist the data
+  unstructured:
+    image: quay.io/unstructured-io/unstructured-api:latest
+    ports:
+      - "${UNSTRUCTURED_PORT}:${UNSTRUCTURED_CONTAINER_PORT}"
   weaviate:
     command:
       - --host
@@ -58,6 +68,6 @@ services:
 volumes:
   weaviate_data:
   prometheus_data:
-#networks:
-#  mynet:
-#    driver: bridge
+networks:
+  mynet:
+    driver: bridge

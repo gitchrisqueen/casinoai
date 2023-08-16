@@ -3,15 +3,20 @@ weaviate-client
 pathlib
 tqdm
 openai
+tiktoken
 
-unstructured
-libmagic # (filetype detection)
-poppler-utils # (images and PDFs)
-#tesseract-ocr # (images and PDFs)
-pandoc # (EPUBs, RTFs and Open Office docs)
-unstructured_inference
-pytesseract
-pdf2image
-pdfminer-six
-numpy
-nltk
+unstructured[local-inference]
+
+# Below Needed for Unstructured to run locally
+#unstructured
+#libmagic # (filetype detection)
+#poppler-utils # (images and PDFs)
+##tesseract-ocr # (images and PDFs)
+#pandoc # (EPUBs, RTFs and Open Office docs)
+#unstructured_inference
+#pytesseract
+#pdf2image
+#pdfminer-six
+#numpy
+#nltk
+# Above Needed for Unstructured to run locally
