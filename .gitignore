@@ -139,5 +139,5 @@ dmypy.json
 cython_debug/
 
 #Pdf Files
-/pdf/*
-/pdfs_structured_output/*
+pdfs/*
+pdfs_structured_output/*
