@@ -4,6 +4,7 @@ pathlib
 tqdm
 openai
 tiktoken
+lark
 
 unstructured[local-inference]
 

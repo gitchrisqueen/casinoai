@@ -12,12 +12,15 @@ echo -e "OPENAI_API_KEY: $OPENAI_API_KEY \nGOOGLE_API_KEY: $GOOGLE_API_KEY \nGOO
 # Run core code here
 
 #1. Ingest files into unstructured format
-/bin/bash ./casinoai/utils/ingest.sh
+#/bin/bash casinoai/utils/ingest.sh
 
 #2. Send unstructured partitioned data into weaviate
-python3 test/test_ingest.py
+#python3 casinoai/ingest_into_weaviate.py
 
 #3. Start server for processing inputs
+#python3 test/test_weaviate_chat.py
+
+# Based on SocialEconomicPoliticalEnvironmentalHealthSafetyTechnologyInnovationIssues can you create me a 5 day meal plan?
 
 
 #python3 casinoai/core.py
