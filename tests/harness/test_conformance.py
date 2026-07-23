@@ -6,7 +6,7 @@ from casinoai.rules.oracle import compile_spec
 from tests.rules.test_oracle import martingale_spec
 
 
-def perfect_agent(spec, history, net_units, model=None):
+def perfect_agent(spec, history, net_units, model=None, ledger=None):
     """Replays the oracle's own decision — must score 100%."""
     shadow = compile_spec(spec)
     for r in history:
@@ -25,7 +25,7 @@ def perfect_agent(spec, history, net_units, model=None):
     )
 
 
-def stubborn_agent(spec, history, net_units, model=None):
+def stubborn_agent(spec, history, net_units, model=None, ledger=None):
     """Always flat-bets 1 unit on red — wrong whenever the progression climbs."""
     return (
         AgentDecision(

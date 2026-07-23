@@ -86,6 +86,11 @@ class _ProgressionState:
         self.busted = False
         self._fib = [1.0, 1.0]
 
+    def state_view(self) -> dict:
+        """Facts-level state: WHERE we are in the progression, not the resolved
+        stake (the agent still maps this to a bet size using the spec's rules)."""
+        return {"kind": self.p.kind, "step_index_0based": self.index}
+
     def stake(self) -> float:
         p = self.p
         if isinstance(p, FlatProgression):
@@ -263,6 +268,60 @@ class Oracle:
         if bk.session_bankroll_units is not None and self.net_units <= -bk.session_bankroll_units:
             return f"session bankroll exhausted ({self.net_units:+.1f} units)"
         return None
+
+    # -- facts ledger ----------------------------------------------------------
+
+    def state_view(self) -> dict:
+        """Authoritative facts-level state for the agent's next decision: WHERE
+        the strategy stands (mode, level, counters, selection state, recent
+        outcomes), but NEVER the resolved stake or bet — the agent still applies
+        the spec's rules to those facts. This is the deterministic bookkeeping we
+        feed back so the agent doesn't have to reconstruct state from history."""
+        selection = self.spec.bet_selection
+        if self._registered_selection is not None and hasattr(
+            self._registered_selection, "state_view"
+        ):
+            sel_view = self._registered_selection.state_view()
+        elif isinstance(selection, FollowLagSelection):
+            tail = [
+                getattr(o, selection.attribute, None)
+                for o in self.outcomes
+                if getattr(o, selection.attribute, None) is not None
+            ]
+            sel_view = {
+                "kind": "follow_lag",
+                "attribute": selection.attribute,
+                "lag": selection.lag,
+                "qualifying_tail": tail[-max(selection.lag, 3) :],
+            }
+        else:
+            sel_view = {"kind": selection.kind}
+
+        prog_view = (
+            self.progression.state_view()
+            if hasattr(self.progression, "state_view")
+            else {"kind": getattr(self.progression, "kind", "unknown")}
+        )
+        return {
+            "net_units": round(self.net_units, 4),
+            "rounds_played": self.rounds_played,
+            "progression": prog_view,
+            "bet_selection": sel_view,
+            "recent_outcomes": [_outcome_token(self.spec.game, o) for o in self.outcomes[-8:]],
+        }
+
+
+def _outcome_token(game: GameType, outcome: Any) -> str:
+    """Compact human-readable token for one past outcome."""
+    if game == GameType.ROULETTE:
+        return outcome.pocket
+    if game == GameType.BACCARAT:
+        return outcome.winner.value
+    if game == GameType.BLACKJACK:
+        return f"{outcome.net_multiplier:+g}"
+    if game == GameType.CRAPS:
+        return outcome.result.value
+    return str(outcome)
 
 
 def _validate_compilable(spec: StrategySpec) -> None:

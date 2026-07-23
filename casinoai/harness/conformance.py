@@ -29,8 +29,17 @@ class ConformanceReport(BaseModel):
     decisions: int
     matches: int
     match_rate: float
+    ledger_mode: str = "none"
     divergences: list[Divergence] = Field(default_factory=list)
     total_cost_usd: float
+    # realized outcomes: the strategy played correctly (oracle) is an H3a sample;
+    # the agent's own realized play converges to it as conformance rises.
+    oracle_net_units: float = 0.0
+    oracle_staked_units: float = 0.0
+    oracle_ev_per_unit: float = 0.0
+    agent_net_units: float = 0.0
+    agent_staked_units: float = 0.0
+    agent_ev_per_unit: float = 0.0
 
 
 def _normalize(bets: list[AgentBet]) -> list[tuple[str, float]]:
@@ -44,14 +53,31 @@ def _actions_match(oracle_action: Action, agent_bets: list[AgentBet], agent_stop
     return expected == _normalize(agent_bets)
 
 
+def _settle_agent(oracle, bets: list[AgentBet], outcome) -> tuple[float, float]:
+    """The agent's realized (net, staked) for its own bets this round. An
+    unknown/invalid bet type counts as a lost wager (it couldn't be placed)."""
+    net = staked = 0.0
+    for b in bets:
+        staked += b.stake_units
+        try:
+            net += oracle.settle(b.bet_type, b.stake_units, outcome)
+        except (ValueError, KeyError):
+            net -= b.stake_units
+    return net, staked
+
+
 def run_conformance(
     spec: StrategySpec,
     model: str | None,
     rounds: int,
     seed: int = 0,
+    ledger: str = "none",
 ) -> ConformanceReport:
     """The oracle plays the session (ground truth drives state); at every round
-    the agent is asked for the same decision from the same observable state."""
+    the agent is asked for the same decision from the same observable state.
+    `ledger`: "none" (agent recounts from history) or "facts" (an authoritative
+    state block is fed back). Records both the oracle's realized outcome (the
+    strategy played correctly — an H3a sample) and the agent's own realized play."""
     from casinoai.llm import resolve_model
 
     model = resolve_model(model)
@@ -61,10 +87,15 @@ def run_conformance(
     divergences: list[Divergence] = []
     decisions = matches = 0
     total_cost = 0.0
+    oracle_net = oracle_staked = 0.0
+    agent_net = agent_staked = 0.0
 
     for round_index in range(rounds):
         oracle_action = oracle.next_action()
-        agent_decision, cost = decide(spec, history, oracle.net_units, model=model)
+        ledger_view = oracle.state_view() if ledger == "facts" else None
+        agent_decision, cost = decide(
+            spec, history, oracle.net_units, model=model, ledger=ledger_view
+        )
         total_cost += cost
         decisions += 1
         if _actions_match(oracle_action, agent_decision.bets, agent_decision.stop):
@@ -83,7 +114,13 @@ def run_conformance(
         if oracle_action.stop:
             break
         outcome = play_round(engine)
+        # agent's own realized play (settled against the same outcome)
+        a_net, a_staked = _settle_agent(oracle, agent_decision.bets, outcome)
+        agent_net += a_net
+        agent_staked += a_staked
+        oracle_staked += sum(b.stake_units for b in oracle_action.bets)
         net = oracle.observe(outcome)
+        oracle_net += net
         history.append(
             RoundLog(
                 outcome=outcome.model_dump(),
@@ -104,6 +141,13 @@ def run_conformance(
         decisions=decisions,
         matches=matches,
         match_rate=matches / decisions if decisions else 0.0,
+        ledger_mode=ledger,
         divergences=divergences,
         total_cost_usd=total_cost,
+        oracle_net_units=oracle_net,
+        oracle_staked_units=oracle_staked,
+        oracle_ev_per_unit=(oracle_net / oracle_staked) if oracle_staked else 0.0,
+        agent_net_units=agent_net,
+        agent_staked_units=agent_staked,
+        agent_ev_per_unit=(agent_net / agent_staked) if agent_staked else 0.0,
     )

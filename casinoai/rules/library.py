@@ -44,6 +44,16 @@ class SuperFibonacciProgression:
             return self.MART[self.mart_index]
         return self.FIB[self.fib_index]
 
+    def state_view(self) -> dict:
+        return {
+            "kind": "super_fibonacci",
+            "mode": self.mode,  # fib | parlay | mart
+            "fib_step_0based": self.fib_index,
+            "martingale_step_0based": self.mart_index,
+            "consecutive_losses": self.consec_losses,
+            "parlay_of_fib_step_0based": self.parlay_from if self.mode == "parlay" else None,
+        }
+
     def _cap_fib(self, index: int) -> int:
         return min(index, len(self.FIB) - 1)
 
@@ -107,6 +117,15 @@ class PowerPivotSelection:
         if self.mode == "same":
             return self.last_decision
         return self.OPPOSITE[self.last_decision]
+
+    def state_view(self) -> dict:
+        return {
+            "kind": "power_pivot",
+            "directive": f"bet the {self.mode.upper()} of the last decision",
+            "last_decision": self.last_decision,
+            "consecutive_losses": self.consec_losses,
+            "extension_pending": self.extension_pending,
+        }
 
     def observe(self, outcome, won: bool | None) -> None:
         """`won` is None when we had no bet on the round (observation only)."""
@@ -172,6 +191,14 @@ class MiniMaxProgression:
     def stake(self) -> float:
         return self.stacks[self._leftmost()]
 
+    def state_view(self) -> dict:
+        return {
+            "kind": "mini_max",
+            "chip_stacks_ABC": list(self.stacks),
+            "leftmost_nonempty_spot": "ABC"[self._leftmost()],
+            "betting_group": self.group,
+        }
+
     def advance(self, won: bool) -> None:
         i = self._leftmost()
         amount = self.stacks[i]
@@ -219,6 +246,20 @@ class IABSelection:
         if self.mode == "S":
             return self.decisions[-1] if self.decisions else None
         return self.decisions[-2] if len(self.decisions) >= 2 else None
+
+    def state_view(self) -> dict:
+        directive = (
+            "bet SAME as the previous decision"
+            if self.mode == "S"
+            else "bet SAME as the SECOND-preceding decision"
+        )
+        return {
+            "kind": "iab",
+            "mode": self.mode,  # S | S2
+            "directive": directive,
+            "last_two_decisions": self.decisions[-2:],
+            "consecutive_losses": self.consec_losses,
+        }
 
     def observe(self, outcome, won: bool | None) -> None:
         color = getattr(outcome, "color", None)
@@ -279,6 +320,21 @@ class PowerBaccaratProgression:
         if self.trend_index < len(self.TREND):
             return self.TREND[self.trend_index]
         return self.TREND[-1] + 0.6 * (self.trend_index - len(self.TREND) + 1)
+
+    def state_view(self) -> dict:
+        active = {
+            "strike": f"strike_step_0based={self.strike_index}",
+            "counter": f"counterstrike_step_0based={self.counter_index}",
+            "trend": f"trend_step_0based={self.trend_index}",
+        }[self.mode]
+        return {
+            "kind": "power_baccarat",
+            "mode": self.mode,  # strike | counter | trend
+            "active_level": active,
+            "recent_strike_results_W_L": ["W" if w else "L" for w in self.strike_window],
+            "consecutive_strike_losses": self.strike_consec_losses,
+            "last_strike_step_0based": self.last_strike_index,
+        }
 
     def _enter_strike(self, index: int) -> None:
         self.mode = "strike"
@@ -361,6 +417,22 @@ class TrackerSelection:
         letter = self._letter()
         return self.last_decision if letter == "S" else self.OPPOSITE[self.last_decision]
 
+    def state_view(self) -> dict:
+        letter = self._letter()
+        directive = (
+            "bet SAME as the last decision"
+            if letter == "S"
+            else "bet OPPOSITE of the last decision"
+        )
+        return {
+            "kind": "tracker",
+            "current_letter": letter,  # S or O
+            "directive": directive,
+            "last_decision": self.last_decision,
+            "in_repeat_after_two_losses": self.repeating,
+            "consecutive_losses": self.consec_losses,
+        }
+
     def observe(self, outcome, won: bool | None) -> None:
         winner = getattr(outcome, "winner", None)
         winner = winner.value if winner is not None else None
@@ -433,6 +505,18 @@ class Formula57Progression:
         if self.pp_index == 1:
             return 1.2
         return 1.6 + 0.4 * (self.pp_index - 2)
+
+    def state_view(self) -> dict:
+        modes = {"f": "Foundation", "rr": "Rapid Recovery", "pp": "Profit Participation"}
+        return {
+            "kind": "formula_57",
+            "mode": modes[self.mode],
+            "foundation_step_0based": self.f_index,
+            "rapid_recovery_step_0based": self.rr_index,
+            "profit_participation_step_0based": self.pp_index,
+            "consecutive_losses": self.consec_losses,
+            "recent_foundation_results_W_L": ["W" if w else "L" for w in self.f_window],
+        }
 
     def _enter_f(self, index: int) -> None:
         self.mode = "f"

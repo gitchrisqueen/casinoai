@@ -4,7 +4,7 @@ from casinoai.harness.conformance import ConformanceReport, Divergence
 from casinoai.reports.conformance_matrix import build_cells, render_markdown
 
 
-def _report(strategy, model, matches, decisions, divs=0):
+def _report(strategy, model, matches, decisions, divs=0, ledger="none"):
     return ConformanceReport(
         strategy=strategy,
         spec_version=2,
@@ -14,6 +14,7 @@ def _report(strategy, model, matches, decisions, divs=0):
         decisions=decisions,
         matches=matches,
         match_rate=matches / decisions,
+        ledger_mode=ledger,
         divergences=[
             Divergence(
                 round_index=i,
@@ -49,3 +50,17 @@ def test_render_markdown_matrix_and_divergences():
     assert "—" in md  # Beta × gpt missing
     assert "## Divergences" in md
     assert "reason 0" in md
+
+
+def test_ledger_modes_are_distinct_columns():
+    reports = [
+        _report("Alpha", "gpt", 20, 30, ledger="none"),
+        _report("Alpha", "gpt", 28, 30, ledger="facts"),
+    ]
+    cells = build_cells(reports)
+    # same strategy+model but different ledger → two cells
+    assert len(cells) == 2
+    md = render_markdown(reports)
+    assert "gpt [+facts]" in md
+    assert "67% (20/30)" in md  # none
+    assert "93% (28/30)" in md  # facts

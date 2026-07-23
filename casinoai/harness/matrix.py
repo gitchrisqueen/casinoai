@@ -29,8 +29,9 @@ def _save_report(report: ConformanceReport, results_dir: Path) -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
     slug = report.strategy.lower().replace(" ", "-")
     model_slug = report.model.replace("/", "_").replace(":", "_")
-    out = (
-        results_dir / f"conformance-{slug}-v{report.spec_version}-{model_slug}-s{report.seed}.json"
+    out = results_dir / (
+        f"conformance-{slug}-v{report.spec_version}-{model_slug}"
+        f"-{report.ledger_mode}-s{report.seed}.json"
     )
     out.write_text(report.model_dump_json(indent=2))
 
@@ -43,9 +44,11 @@ def run_matrix(
     max_workers: int = 6,
     results_dir: Path = DEFAULT_RESULTS_DIR,
     on_done=None,
+    ledger: str = "none",
 ) -> list[ConformanceReport]:
     """Run the full (spec × model × seed) grid concurrently. Returns every
-    ConformanceReport (failed cells are dropped with a note via on_done)."""
+    ConformanceReport (failed cells are dropped with a note via on_done).
+    `ledger` ("none"|"facts") is passed to every cell."""
     seeds = seeds or [0]
     specs: dict[str, StrategySpec] = {p: load_spec(p) for p in spec_paths}
 
@@ -58,7 +61,11 @@ def run_matrix(
 
     def run_cell(cell: MatrixCellSpec):
         report = run_conformance(
-            specs[cell.spec_path], model=cell.model, rounds=cell.rounds, seed=cell.seed
+            specs[cell.spec_path],
+            model=cell.model,
+            rounds=cell.rounds,
+            seed=cell.seed,
+            ledger=ledger,
         )
         _save_report(report, results_dir)
         return report

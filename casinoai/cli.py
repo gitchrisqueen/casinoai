@@ -81,16 +81,26 @@ def _cmd_conform(args: argparse.Namespace) -> int:
     from casinoai.strategies import load_spec
 
     spec = load_spec(Path(args.spec))
-    report = run_conformance(spec, model=args.model, rounds=args.rounds, seed=args.seed)
+    report = run_conformance(
+        spec, model=args.model, rounds=args.rounds, seed=args.seed, ledger=args.ledger
+    )
     results_dir = Path("data/results")
     results_dir.mkdir(parents=True, exist_ok=True)
     slug = report.strategy.lower().replace(" ", "-")
     model_slug = report.model.replace("/", "_").replace(":", "_")
-    out = results_dir / f"conformance-{slug}-v{report.spec_version}-{model_slug}.json"
+    out = results_dir / (
+        f"conformance-{slug}-v{report.spec_version}-{model_slug}-{report.ledger_mode}.json"
+    )
     out.write_text(report.model_dump_json(indent=2))
     print(f"Conformance: {report.strategy} v{report.spec_version} × {report.model}")
-    print(f"  decisions: {report.decisions}  matches: {report.matches}")
+    print(
+        f"  ledger: {report.ledger_mode}  decisions: {report.decisions}  matches: {report.matches}"
+    )
     print(f"  match rate: {report.match_rate:.2%}  cost: ${report.total_cost_usd:.4f}")
+    print(
+        f"  realized EV/unit — oracle: {report.oracle_ev_per_unit:+.2%}  "
+        f"agent: {report.agent_ev_per_unit:+.2%}"
+    )
     for d in report.divergences[:10]:
         print(f"  ✗ round {d.round_index}: expected {d.expected} got {d.actual} — {d.rationale}")
     if len(report.divergences) > 10:
@@ -128,6 +138,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         seeds=seeds,
         max_workers=args.workers,
         on_done=on_done,
+        ledger=args.ledger,
     )
     print("\nMatrix complete — run `casinoai report` for the aggregated table.")
     return 0
@@ -225,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     p_conform.add_argument("--model", default=None, help="LLM model id (default from env)")
     p_conform.add_argument("--rounds", type=int, default=100)
     p_conform.add_argument("--seed", type=int, default=0)
+    p_conform.add_argument("--ledger", choices=["none", "facts"], default="none")
     p_conform.set_defaults(func=_cmd_conform)
 
     p_backtest = sub.add_parser("backtest", help="Monte Carlo backtest of an approved spec")
@@ -246,6 +258,12 @@ def main(argv: list[str] | None = None) -> int:
     p_matrix.add_argument("--rounds", type=int, default=30)
     p_matrix.add_argument("--seeds", type=int, default=1, help="Number of seeds per cell")
     p_matrix.add_argument("--workers", type=int, default=6, help="Concurrent cells")
+    p_matrix.add_argument(
+        "--ledger",
+        choices=["none", "facts"],
+        default="none",
+        help="Feed an authoritative state block to the agent (facts) or not (none)",
+    )
     p_matrix.set_defaults(func=_cmd_matrix)
 
     p_report = sub.add_parser("report", help="Cross-strategy leaderboard from backtest results")

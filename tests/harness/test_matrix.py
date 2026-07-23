@@ -6,7 +6,7 @@ from casinoai.harness.matrix import run_matrix
 from casinoai.reports.conformance_matrix import build_cells, load_conformance
 
 
-def flat_agent(spec, history, net_units, model=None):
+def flat_agent(spec, history, net_units, model=None, ledger=None):
     return (
         AgentDecision(bets=[AgentBet(bet_type="red", stake_units=1.0)], stop=False, rationale="x"),
         0.0,
@@ -43,7 +43,7 @@ def test_matrix_reports_aggregate_seeds(tmp_path, monkeypatch):
 
 
 def test_matrix_survives_a_failing_cell(tmp_path, monkeypatch):
-    def sometimes_boom(spec, history, net_units, model=None):
+    def sometimes_boom(spec, history, net_units, model=None, ledger=None):
         if model == "boom":
             raise RuntimeError("provider down")
         return flat_agent(spec, history, net_units, model)

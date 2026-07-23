@@ -6,6 +6,7 @@ see the oracle. Every decision is one gateway call returning a structured
 AgentDecision.
 """
 
+import json
 from typing import Any
 
 import yaml
@@ -23,6 +24,17 @@ bets for the next round (or stop if the rules say to stop).
 Stakes are in units. Follow the progression rules precisely from the history
 of your own wins and losses. If entry conditions are not met, bet nothing
 (empty bets list).
+"""
+
+LEDGER_SYSTEM = """\
+
+CURRENT STATE is provided below and is AUTHORITATIVE — it is the exact,
+verified bookkeeping of where the strategy stands (mode, level indices,
+counters, chip stacks, selection directive). Trust it completely over any
+count you might reconstruct yourself. Your job is only to APPLY the strategy's
+rules to this state: map the level/mode to the correct stake, apply the
+selection directive to the correct bet, and honor entry/stop conditions.
+Indices are 0-based unless stated otherwise.
 """
 
 
@@ -50,8 +62,11 @@ def decide(
     history: list[RoundLog],
     net_units: float,
     model: str | None = None,
+    ledger: dict | None = None,
 ) -> tuple[AgentDecision, float]:
-    """One agent decision; returns (decision, cost_usd)."""
+    """One agent decision; returns (decision, cost_usd). When `ledger` is given
+    (facts mode), an authoritative CURRENT STATE block is added and the agent is
+    told to trust it over its own count."""
     spec_yaml = yaml.safe_dump(
         spec.model_dump(mode="json", exclude={"source", "approval", "ambiguities"}),
         sort_keys=False,
@@ -66,12 +81,17 @@ def decide(
             )
     else:
         lines.append("SESSION HISTORY: none — this is the first round.")
+    if ledger is not None:
+        lines.append(
+            "CURRENT STATE (authoritative — apply the rules to this, do not recount):\n"
+            + json.dumps(ledger, indent=2)
+        )
     lines.append("Decide the next round's action.")
 
     result = complete(
         "\n".join(lines),
         model=model,
-        system=AGENT_SYSTEM,
+        system=AGENT_SYSTEM + (LEDGER_SYSTEM if ledger is not None else ""),
         schema=AgentDecision,
         tag=f"conform:{spec.name}",
     )
