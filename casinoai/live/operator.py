@@ -28,7 +28,7 @@ from casinoai.live.playwright_adapter import (
     OperatorBetPlacer,
     assert_demo_mode,
 )
-from casinoai.live.reader import ManualBaccaratReader, ManualTableReader
+from casinoai.live.reader import ManualBaccaratReader, ManualCrapsReader, ManualTableReader
 from casinoai.live.session import run_live_session, save_session
 from casinoai.strategies import load_spec
 from casinoai.strategies.spec import GameType
@@ -40,8 +40,10 @@ def _manual_reader_for(spec):
         return ManualBaccaratReader()
     if spec.game == GameType.ROULETTE:
         return ManualTableReader()
+    if spec.game == GameType.CRAPS:
+        return ManualCrapsReader()
     raise SystemExit(
-        f"Manual live sessions support roulette and baccarat; {spec.game.value} not yet wired."
+        f"Manual live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
     )
 
 
@@ -117,20 +119,26 @@ def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path
 
 
 def default_result_parser_hits(payload: str) -> bool:
-    """A frame looks like a result if EITHER a roulette pocket or a baccarat
-    winner can be pulled from it — so `capture` works for both games."""
+    """A frame looks like a result if a roulette pocket, baccarat winner, or
+    craps line result can be pulled from it — so `capture` works for any game."""
     from casinoai.live.playwright_adapter import (
+        extract_line_results_from_frame,
         extract_pockets_from_frame,
         extract_winners_from_frame,
     )
 
-    return bool(extract_pockets_from_frame(payload) or extract_winners_from_frame(payload))
+    return bool(
+        extract_pockets_from_frame(payload)
+        or extract_winners_from_frame(payload)
+        or extract_line_results_from_frame(payload)
+    )
 
 
 def _auto_reader_for(spec, page):
     """WebSocket reader matching the strategy's game."""
     from casinoai.live.playwright_adapter import (
         PlaywrightBaccaratReader,
+        PlaywrightCrapsReader,
         PlaywrightRouletteReader,
     )
 
@@ -138,8 +146,10 @@ def _auto_reader_for(spec, page):
         return PlaywrightBaccaratReader(page)
     if spec.game == GameType.ROULETTE:
         return PlaywrightRouletteReader(page)
+    if spec.game == GameType.CRAPS:
+        return PlaywrightCrapsReader(page)
     raise SystemExit(
-        f"Auto live sessions support roulette and baccarat; {spec.game.value} not yet wired."
+        f"Auto live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
     )
 
 

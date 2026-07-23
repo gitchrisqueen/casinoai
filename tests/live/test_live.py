@@ -378,3 +378,64 @@ def test_capture_hit_detection_covers_both_games():
     assert default_result_parser_hits('{"winningNumber":17}')  # roulette
     assert default_result_parser_hits('3:::{"data":{"winner":"tie"}}')  # baccarat
     assert not default_result_parser_hits("ping")
+
+
+# -- craps live + auto -----------------------------------------------------------
+
+
+def _passline_craps_spec():
+    from casinoai.strategies.spec import StrategySpec
+
+    return StrategySpec.model_validate(
+        {
+            "name": "Pass Line Flat",
+            "game": "craps",
+            "summary": "flat pass-line bet every coup",
+            "bets": [{"bet_type": "pass_line"}],
+            "progression": {"kind": "flat", "units": 1.0},
+            "bankroll": {"stop_loss_units": 1000},
+        }
+    )
+
+
+def test_craps_live_session_records_line_results():
+    from casinoai.live.reader import RecordedCrapsReader
+
+    spec = _passline_craps_spec()
+    reader = RecordedCrapsReader(["pass_win", "pass_lose", "dont_push", "pass_win"])
+    session = run_live_session(
+        spec,
+        reader,
+        NullBetPlacer(),
+        SessionLimits(
+            max_bet_units=100, max_total_stake_units=100, stop_loss_units=1000, max_rounds=100
+        ),
+        now="2026-07-23T00:00:00Z",
+    )
+    assert [r.outcome for r in session.rounds] == ["pass_win", "pass_lose", "dont_push", "pass_win"]
+    # pass line: +1 -1 (push on dont_push -> pass loses its 12) ... net checks accounting
+    assert session.net_units == pytest.approx(sum(r.net_units for r in session.rounds))
+
+
+def test_manual_craps_reader():
+    from casinoai.live.reader import ManualCrapsReader
+
+    tape = iter(["w", "lose", "push", "q"])
+    reader = ManualCrapsReader(read_fn=lambda _p: next(tape))
+    assert reader.read_next_spin().result.value == "pass_win"
+    assert reader.read_next_spin().result.value == "pass_lose"
+    assert reader.read_next_spin().result.value == "dont_push"
+    assert reader.read_next_spin() is None
+
+
+def test_default_craps_parser_and_frame():
+    from casinoai.live.playwright_adapter import (
+        default_craps_parser,
+        extract_line_results_from_frame,
+    )
+
+    assert default_craps_parser({"lineResult": "seven out"}) == "pass_lose"
+    assert default_craps_parser({"decision": "PASS"}) == "pass_win"
+    assert default_craps_parser({"chat": "hi"}) is None
+    frame = '3:::{"data":{"_type":"CoupResult","lineResult":"point_made"}}'
+    assert extract_line_results_from_frame(frame) == ["pass_win"]

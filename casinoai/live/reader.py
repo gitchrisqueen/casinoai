@@ -10,6 +10,7 @@ protocols, so it is fully testable without a browser.
 from typing import Any, Protocol, runtime_checkable
 
 from casinoai.engines.baccarat import BaccaratOutcome, BaccaratWinner
+from casinoai.engines.craps import CrapsOutcome, LineResult
 from casinoai.engines.roulette import RouletteOutcome
 
 
@@ -36,6 +37,15 @@ def _baccarat_outcome(winner: BaccaratWinner) -> BaccaratOutcome:
         banker_cards=[],
         natural=False,
     )
+
+
+def _craps_outcome(result: LineResult) -> CrapsOutcome:
+    """A minimal CrapsOutcome carrying only the observed line result — all the
+    oracle's settle reads. come_out/point/rolls are placeholders (we only see
+    the line decision, not the dice)."""
+    placeholder = {LineResult.PASS_WIN: 7, LineResult.PASS_LOSE: 2, LineResult.DONT_PUSH: 12}
+    co = placeholder[result]
+    return CrapsOutcome(result=result, come_out=co, point=None, rolls=[co], seven_out=False)
 
 
 @runtime_checkable
@@ -155,3 +165,63 @@ class RecordedBaccaratReader:
         w = self._winners[self._i]
         self._i += 1
         return _baccarat_outcome(BaccaratWinner(w))
+
+
+_CRAPS_WORDS = {
+    "w": LineResult.PASS_WIN,
+    "win": LineResult.PASS_WIN,
+    "pass": LineResult.PASS_WIN,
+    "l": LineResult.PASS_LOSE,
+    "lose": LineResult.PASS_LOSE,
+    "loss": LineResult.PASS_LOSE,
+    "seven": LineResult.PASS_LOSE,
+    "7out": LineResult.PASS_LOSE,
+    "push": LineResult.DONT_PUSH,
+    "12": LineResult.DONT_PUSH,
+    "bar": LineResult.DONT_PUSH,
+}
+
+
+class ManualCrapsReader:
+    """OBSERVER mode for craps: the human watches each pass-line coup resolve and
+    types the line result — [w]in / [l]ose / [push] (come-out 12, a don't-pass
+    push). One coup = one betting round, matching the engine."""
+
+    def __init__(self, read_fn=input, is_demo: bool = True):
+        self._read_fn = read_fn
+        self._is_demo = is_demo
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self) -> CrapsOutcome | None:
+        raw = self._read_fn("Line result — [w]in / [l]ose / [push] come-out 12 (blank/q to end): ")
+        if raw is None:
+            return None
+        raw = raw.strip().lower()
+        if raw in ("", "q", "quit", "stop"):
+            return None
+        result = _CRAPS_WORDS.get(raw)
+        if result is None:
+            print(f"  '{raw}' is not win/lose/push; try again.")
+            return self.read_next_spin()
+        return _craps_outcome(result)
+
+
+class RecordedCrapsReader:
+    """Replays a fixed list of line results ('pass_win'/'pass_lose'/'dont_push')."""
+
+    def __init__(self, results: list[str], is_demo: bool = True):
+        self._results = list(results)
+        self._i = 0
+        self._is_demo = is_demo
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self) -> CrapsOutcome | None:
+        if self._i >= len(self._results):
+            return None
+        r = self._results[self._i]
+        self._i += 1
+        return _craps_outcome(LineResult(r))

@@ -170,6 +170,63 @@ def extract_winners_from_frame(
     return found
 
 
+# --- craps -----------------------------------------------------------------------
+
+_CRAPS_WORDS = {
+    "pass": "pass_win",
+    "pass_win": "pass_win",
+    "passline": "pass_win",
+    "pass_line_win": "pass_win",
+    "win": "pass_win",
+    "point_made": "pass_win",
+    "dont": "pass_lose",
+    "dont_pass": "pass_lose",
+    "pass_line_lose": "pass_lose",
+    "lose": "pass_lose",
+    "loss": "pass_lose",
+    "seven_out": "pass_lose",
+    "sevenout": "pass_lose",
+    "push": "dont_push",
+    "bar": "dont_push",
+}
+
+
+def default_craps_parser(payload: dict) -> str | None:
+    """Best-effort craps line-result parser: reads a resolved pass-line decision
+    ('pass_win'/'pass_lose'/'dont_push') from common keys. Verify against
+    captured traffic — craps message formats vary widely by provider."""
+    for key in ("lineResult", "line_result", "result", "outcome", "passLine", "decision"):
+        if key in payload:
+            v = str(payload[key]).strip().lower().replace(" ", "_")
+            if v in _CRAPS_WORDS:
+                return _CRAPS_WORDS[v]
+    return None
+
+
+def extract_line_results_from_frame(
+    raw: str, parser: ResultParser = default_craps_parser
+) -> list[str]:
+    """Pure helper (unit-tested): pull craps line results out of one WS frame."""
+    data = _loads_framed(raw)
+    if data is None:
+        return []
+    found: list[str] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            r = parser(node)
+            if r is not None:
+                found.append(r)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(data)
+    return found
+
+
 class PlaywrightRouletteReader:
     """Reads roulette spin outcomes off the game's WebSocket frames.
 
@@ -253,6 +310,42 @@ class PlaywrightBaccaratReader:
         while waited < self._timeout_s:
             if self._pending:
                 return _baccarat_outcome(BaccaratWinner(self._pending.pop(0)))
+            self._page.wait_for_timeout(500)
+            waited += 0.5
+        return None
+
+
+class PlaywrightCrapsReader:
+    """Reads craps pass-line results off the game's WebSocket frames; emits
+    CrapsOutcome. One coup = one round, matching the engine."""
+
+    def __init__(self, page, parser: ResultParser = default_craps_parser, timeout_s: float = 120.0):
+        self._page = page
+        self._parser = parser
+        self._timeout_s = timeout_s
+        self._pending: list[str] = []
+        self._is_demo = False
+
+    def attach(self, game_url: str) -> None:
+        assert_demo_mode(game_url)
+        self._is_demo = True
+        self._page.on("websocket", lambda ws: ws.on("framereceived", self._on_frame))
+        self._page.goto(game_url)
+
+    def _on_frame(self, payload) -> None:
+        self._pending.extend(extract_line_results_from_frame(payload, self._parser))
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self):
+        from casinoai.engines.craps import LineResult
+        from casinoai.live.reader import _craps_outcome
+
+        waited = 0.0
+        while waited < self._timeout_s:
+            if self._pending:
+                return _craps_outcome(LineResult(self._pending.pop(0)))
             self._page.wait_for_timeout(500)
             waited += 0.5
         return None

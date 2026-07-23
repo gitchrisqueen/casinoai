@@ -3,9 +3,11 @@ from casinoai.live.guard import GuardViolation, SessionGuard, SessionLimits
 from casinoai.live.reader import (
     BetPlacer,
     ManualBaccaratReader,
+    ManualCrapsReader,
     ManualTableReader,
     NullBetPlacer,
     RecordedBaccaratReader,
+    RecordedCrapsReader,
     RecordedTableReader,
     TableReader,
 )
@@ -18,9 +20,11 @@ __all__ = [
     "LiveSession",
     "LiveVsSim",
     "ManualBaccaratReader",
+    "ManualCrapsReader",
     "ManualTableReader",
     "NullBetPlacer",
     "RecordedBaccaratReader",
+    "RecordedCrapsReader",
     "RecordedRound",
     "RecordedTableReader",
     "SessionGuard",
