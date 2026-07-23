@@ -177,6 +177,57 @@ def test_default_result_parser():
     assert default_result_parser({"number": 99}) is None  # out of range
 
 
+def test_extract_pockets_from_frame():
+    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+
+    # nested dict — the winning number is buried inside a game-state message
+    frame = '{"type":"spinResult","data":{"round":42,"winningNumber":17}}'
+    assert extract_pockets_from_frame(frame) == ["17"]
+    # array of messages
+    assert extract_pockets_from_frame('[{"result":"0"},{"chat":"hi"}]') == ["0"]
+    # non-JSON keepalive frames are ignored
+    assert extract_pockets_from_frame("ping") == []
+    assert extract_pockets_from_frame('{"heartbeat":true}') == []
+
+
+def test_extract_pockets_from_socketio_frame():
+    """Softswiss/twogameslink 'gpas' games wrap messages in socket.io framing
+    like `3:::{...}` (real format captured from the roulettesimulator demo)."""
+    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+
+    frame = '3:::{"data":{"_type":"SpinResult","winningNumber":23},"t":123}'
+    assert extract_pockets_from_frame(frame) == ["23"]
+    # socket.io connect/heartbeat frames carry no result
+    assert extract_pockets_from_frame("1::") == []
+    assert extract_pockets_from_frame("2::") == []
+
+
+# -- operator entry point (no browser: capture/auto need --url and refuse real) --
+
+
+def test_operator_capture_requires_url(capsys):
+    from casinoai.live.operator import main
+
+    rc = main(["strategies/approved/power-pro-roulette-v2.yaml", "--mode", "capture"])
+    assert rc == 1
+    assert "capture mode needs --url" in capsys.readouterr().err
+
+
+def test_operator_refuses_real_money_url():
+    from casinoai.live.operator import _refuse_if_real_money
+
+    _refuse_if_real_money(["https://x.com/game?realMode=0"])  # ok
+    with pytest.raises(SystemExit, match="real-money"):
+        _refuse_if_real_money(["https://x.com/game?realMode=1"])
+
+
+def test_operator_default_parser_hits():
+    from casinoai.live.operator import default_result_parser_hits
+
+    assert default_result_parser_hits('{"winningNumber":7}')
+    assert not default_result_parser_hits("ping")
+
+
 # -- manual observer reader ------------------------------------------------------
 
 

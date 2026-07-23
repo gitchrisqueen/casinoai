@@ -68,6 +68,49 @@ The reusable logic is pure and fully unit-tested without a browser:
 - `playwright_adapter.py` — the thin, optional browser binding (WebSocket reader,
   demo-mode assertion, observer bet placer).
 
+## Runnable harness
+
+One-time setup (installs the optional Playwright browser):
+
+```bash
+./scripts/setup_live.sh
+# equivalently: uv sync --extra live && uv run playwright install chromium
+```
+
+Watch it run against a demo table (manual observer — always works, ToS-safe):
+
+```bash
+./scripts/run_live_demo.sh
+# or a specific strategy + table:
+./scripts/run_live_demo.sh strategies/approved/power-pro-roulette-v2.yaml \
+    https://www.roulettesimulator.net/simulators/european-roulette/
+```
+
+The script opens the demo in a visible browser; the oracle prints the bet to
+place; you place it by hand and type the winning pocket back. The session is
+recorded to `data/results/live/` and can be fed to `compare()`.
+
+Discover a provider's result-message format (for `auto` mode):
+
+```bash
+./scripts/capture_ws.sh https://www.roulettesimulator.net/simulators/european-roulette/ 90
+# logs every WebSocket frame to data/results/live/ws_capture.jsonl and flags
+# any frame that looks like a winning number
+```
+
+### Captured protocol (validated)
+
+Running `capture` against the roulettesimulator European table revealed the
+real provider stack: a **socket.io** WebSocket to
+`gpas-swisscur.twogameslink.com` (Softswiss's "gpas" platform, which powers a
+large share of demo games). Messages are framed like `3:::{json}` and carry a
+`_type` discriminator (`InitGameSession`, `GetClientStateResponse`, balance
+data showing the demo `amount: 1000000` = €10,000 credits, etc.). The parser
+(`extract_pockets_from_frame`) handles that socket.io framing. The actual
+result message only appears once a spin is placed (canvas interaction), so
+`auto` mode's parser is finalized by capturing one real spin and confirming the
+`_type` that carries the winning number.
+
 ## Exit criterion
 
 >= 10 recorded demo sessions for one strategy with a `compare()` report against
