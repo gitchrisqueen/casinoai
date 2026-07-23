@@ -8,7 +8,12 @@ from casinoai.reports.conformance_matrix import build_cells, load_conformance
 
 def flat_agent(spec, history, net_units, model=None, ledger=None):
     return (
-        AgentDecision(bets=[AgentBet(bet_type="red", stake_units=1.0)], stop=False, rationale="x"),
+        AgentDecision(
+            computation="c",
+            bets=[AgentBet(bet_type="red", stake_units=1.0)],
+            stop=False,
+            rationale="x",
+        ),
         0.0,
     )
 

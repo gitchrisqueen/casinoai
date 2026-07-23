@@ -20,6 +20,7 @@ initiated, hard caps via SessionGuard. Playwright is an optional extra:
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -27,11 +28,25 @@ from casinoai.live.guard import SessionLimits
 from casinoai.live.playwright_adapter import (
     OperatorBetPlacer,
     assert_demo_mode,
-    default_result_parser,
 )
-from casinoai.live.reader import ManualTableReader
+from casinoai.live.reader import ManualBaccaratReader, ManualCrapsReader, ManualTableReader
 from casinoai.live.session import run_live_session, save_session
 from casinoai.strategies import load_spec
+from casinoai.strategies.spec import GameType
+
+
+def _manual_reader_for(spec):
+    """Observer reader matching the strategy's game (human types outcomes)."""
+    if spec.game == GameType.BACCARAT:
+        return ManualBaccaratReader()
+    if spec.game == GameType.ROULETTE:
+        return ManualTableReader()
+    if spec.game == GameType.CRAPS:
+        return ManualCrapsReader()
+    raise SystemExit(
+        f"Manual live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
+    )
+
 
 REAL_MONEY_SIGNALS = ("realmode=1", "mode=real", "play=real", "/real")
 
@@ -56,79 +71,203 @@ def _refuse_if_real_money(urls: list[str]) -> None:
             raise SystemExit(f"Refusing: a real-money signal was seen in {url}")
 
 
+def _host(u: str) -> str:
+    m = re.match(r"[a-z]+://([^/]+)", u or "")
+    return m.group(1) if m else (u or "")[:40]
+
+
+def _detect_limits_from_capture(path: Path = Path("data/results/live/ws_capture.jsonl")):
+    """Best-effort (min, max) bet from a prior capture's provider config."""
+    if not path.exists():
+        return None
+    m = re.search(r'"betLimit":\s*\{\s*"min":\s*([\d.]+),\s*"max":\s*([\d.]+)', path.read_text())
+    return (float(m.group(1)), float(m.group(2))) if m else None
+
+
+def verify_table(spec, chips=None, table_min=None, table_max=None, table_name="", read_fn=input):
+    """Check the strategy's required stakes against the live table's chips/limits.
+    Prompts the operator for anything not passed as a flag (auto-filling from a
+    prior capture's betLimit). Returns the resolved TableProfile to proceed
+    (truthy), or None to abort — so the caller can reuse the confirmed chips."""
+    from casinoai.live.table import TableProfile, check_table, render_check
+
+    detected = _detect_limits_from_capture()
+    if chips is None:
+        raw = read_fn("Table chip denominations, comma-separated (e.g. 1,5,25,100,500): ")
+        chips = [float(x) for x in (raw or "").replace(" ", "").split(",") if x]
+    if not chips:
+        print("No chip denominations given — cannot verify table; aborting.", file=sys.stderr)
+        return None
+    if table_min is None:
+        d = f" [{detected[0]:g}]" if detected else ""
+        raw = (read_fn(f"Table minimum bet{d}: ") or "").strip()
+        table_min = float(raw) if raw else (detected[0] if detected else min(chips))
+    if table_max is None:
+        d = f" [{detected[1]:g}]" if detected else ""
+        raw = (read_fn(f"Table maximum bet{d}: ") or "").strip()
+        table_max = float(raw) if raw else (detected[1] if detected else 1e9)
+
+    profile = TableProfile(
+        name=_host(table_name) or "table",
+        min_bet=table_min,
+        max_bet=table_max,
+        chip_denominations=sorted(chips),
+    )
+    check = check_table(spec, profile)
+    print("\n" + render_check(spec, profile, check) + "\n")
+    if check.ok and not check.dynamic:
+        return profile
+    ans = (read_fn("Proceed anyway? [y/N]: ") or "").strip().lower()
+    return profile if ans in ("y", "yes") else None
+
+
 def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path:
-    """Log every WebSocket frame the game exchanges, to discover the result
-    message format. Writes newline-delimited JSON: {ws_url, dir, payload}."""
+    """Log the game's result traffic — WebSocket frames AND HTTP/JSON responses,
+    across the page and any new tab — to discover the result message format.
+    Writes newline-delimited JSON records with a `payload` field."""
     sync_playwright = _require_playwright()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    frames: list[dict] = []
+    records: list[dict] = []
+    tabs = {"n": 0}
+    hosts: set[str] = set()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not headed)
         page = browser.new_page()
 
-        def on_ws(ws):
-            _refuse_if_real_money([ws.url])
-            ws.on(
-                "framereceived",
-                lambda payload: frames.append(
-                    {"ws_url": ws.url, "dir": "recv", "payload": str(payload)[:1000]}
-                ),
-            )
-            ws.on(
-                "framesent",
-                lambda payload: frames.append(
-                    {"ws_url": ws.url, "dir": "sent", "payload": str(payload)[:1000]}
-                ),
-            )
+        def on_response(resp):
+            try:
+                rt = resp.request.resource_type
+                if rt not in ("xhr", "fetch"):
+                    return
+                hosts.add(_host(resp.url))
+                ctype = (resp.headers or {}).get("content-type", "")
+                if "json" not in ctype and "text" not in ctype:
+                    return
+                body = resp.text()[:2000]
+                records.append({"kind": "http", "ws_url": resp.url, "dir": rt, "payload": body})
+            except Exception:
+                pass
 
-        page.on("websocket", on_ws)
-        print(f"Opening {url} — capturing WebSocket frames for {seconds}s ...")
+        # Hook every page (current + any new tab/popup) for BOTH transports.
+        def hook(pg):
+            tabs["n"] += 1
+
+            def on_ws(ws):
+                _refuse_if_real_money([ws.url])
+                hosts.add(_host(ws.url))
+                for ev in ("framereceived", "framesent"):
+                    d = "recv" if ev == "framereceived" else "sent"
+                    ws.on(
+                        ev,
+                        lambda payload, d=d, u=ws.url: records.append(
+                            {"kind": "ws", "ws_url": u, "dir": d, "payload": str(payload)[:1500]}
+                        ),
+                    )
+
+            pg.on("websocket", on_ws)
+            pg.on("response", on_response)
+
+        hook(page)
+        page.context.on("page", hook)
+        print(f"Opening {url} — capturing WebSocket + HTTP result traffic for {seconds}s ...")
+        print(
+            "  (if the game opens in a NEW TAB, that's fine — we follow it. "
+            "Click 'Play for free' and play several rounds.)"
+        )
         page.goto(url)
         page.wait_for_timeout(seconds * 1000)
         browser.close()
 
     with out_path.open("w") as f:
-        for fr in frames:
-            f.write(json.dumps(fr) + "\n")
-    hits = [fr for fr in frames if default_result_parser_hits(fr["payload"])]
-    print(f"Captured {len(frames)} frames -> {out_path}")
-    print(f"  {len(hits)} frame(s) look like they contain a roulette result:")
-    for fr in hits[:5]:
-        print(f"    {fr['ws_url'][:60]} : {fr['payload'][:160]}")
-    if not hits:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+
+    ws_n = sum(1 for r in records if r["kind"] == "ws")
+    http_n = sum(1 for r in records if r["kind"] == "http")
+    hits = [r for r in records if default_result_parser_hits(r["payload"])]
+    print(
+        f"Captured {ws_n} WS frames + {http_n} HTTP/JSON responses "
+        f"across {tabs['n']} tab(s) -> {out_path}"
+    )
+    print(f"  hosts seen: {', '.join(sorted(hosts)) or '(none)'}")
+    print(f"  {len(hits)} record(s) look like they contain a game result:")
+    for r in hits[:5]:
+        print(f"    [{r['kind']}] {r['ws_url'][:55]} : {r['payload'][:150]}")
+    if not records:
         print(
-            "  (none matched the default parser — inspect the file and write a "
-            "provider-specific parser)"
+            "  Captured NOTHING — the game tab may not have loaded, or blocks "
+            "automation. Try playing more rounds, or a different demo table."
+        )
+    elif not hits:
+        print(
+            "  (traffic captured but no result matched — paste a few records "
+            "from the file and I'll add a provider-specific parser)"
         )
     return out_path
 
 
 def default_result_parser_hits(payload: str) -> bool:
-    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+    """A frame looks like a result if a roulette pocket, baccarat winner, or
+    craps line result can be pulled from it — so `capture` works for any game."""
+    from casinoai.live.playwright_adapter import (
+        extract_line_results_from_frame,
+        extract_pockets_from_frame,
+        extract_winners_from_frame,
+    )
 
-    return bool(extract_pockets_from_frame(payload))
+    return bool(
+        extract_pockets_from_frame(payload)
+        or extract_winners_from_frame(payload)
+        or extract_line_results_from_frame(payload)
+    )
 
 
-def run_auto(spec_path: str, url: str, limits: SessionLimits, headed: bool = True):
+def _auto_reader_for(spec, page):
+    """WebSocket reader matching the strategy's game."""
+    from casinoai.live.playwright_adapter import (
+        PlaywrightBaccaratReader,
+        PlaywrightCrapsReader,
+        PlaywrightRouletteReader,
+    )
+
+    if spec.game == GameType.BACCARAT:
+        return PlaywrightBaccaratReader(page)
+    if spec.game == GameType.ROULETTE:
+        return PlaywrightRouletteReader(page)
+    if spec.game == GameType.CRAPS:
+        return PlaywrightCrapsReader(page)
+    raise SystemExit(
+        f"Auto live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
+    )
+
+
+def _placer_for(spec, chips=None):
+    """Bet placer that prints currency + chip stacks (verified stakes), not raw
+    units, whenever we know the base unit / table chips."""
+    return OperatorBetPlacer(unit_size=spec.bankroll.unit_size or 1.0, chips=chips)
+
+
+def run_auto(spec_path: str, url: str, limits: SessionLimits, headed: bool = True, chips=None):
     """Read outcomes off the WebSocket automatically and run the oracle loop."""
     sync_playwright = _require_playwright()
-    from casinoai.live.playwright_adapter import PlaywrightRouletteReader
 
     spec = load_spec(spec_path)
     assert_demo_mode(url)  # refuses non-demo up front
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not headed)
         page = browser.new_page()
-        reader = PlaywrightRouletteReader(page, parser=default_result_parser)
+        reader = _auto_reader_for(spec, page)
         reader.attach(url)
-        session = run_live_session(spec, reader, OperatorBetPlacer(), limits, table_url=url)
+        session = run_live_session(spec, reader, _placer_for(spec, chips), limits, table_url=url)
         browser.close()
     path = save_session(session)
     _print_summary(session, path)
 
 
-def run_manual(spec_path: str, url: str | None, limits: SessionLimits, headed: bool = True):
+def run_manual(
+    spec_path: str, url: str | None, limits: SessionLimits, headed: bool = True, chips=None
+):
     """Open the game (if a URL is given) for the human to watch/play, and read
     winning pockets from the terminal."""
     spec = load_spec(spec_path)
@@ -143,7 +282,7 @@ def run_manual(spec_path: str, url: str | None, limits: SessionLimits, headed: b
         page.goto(url)
     try:
         session = run_live_session(
-            spec, ManualTableReader(), OperatorBetPlacer(), limits, table_url=url
+            spec, _manual_reader_for(spec), _placer_for(spec, chips), limits, table_url=url
         )
     finally:
         if browser:
@@ -168,6 +307,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-rounds", type=int, default=200)
     ap.add_argument("--stop-loss", type=float, default=40.0)
     ap.add_argument("--headless", action="store_true", help="Run browser without a window")
+    ap.add_argument("--chips", default=None, help="Table chip denominations, e.g. 1,5,25,100,500")
+    ap.add_argument("--table-min", type=float, default=None, help="Table minimum bet")
+    ap.add_argument("--table-max", type=float, default=None, help="Table maximum bet")
+    ap.add_argument("--skip-table-check", action="store_true", help="Skip stake/table verification")
     args = ap.parse_args(argv)
 
     limits = SessionLimits(
@@ -185,13 +328,25 @@ def main(argv: list[str] | None = None) -> int:
         out = Path("data/results/live/ws_capture.jsonl")
         capture(args.url, args.seconds, out, headed=headed)
         return 0
+    # Verify the strategy's stakes fit the table (chips/min/max) before playing.
+    chips = [float(x) for x in args.chips.split(",")] if args.chips else None
+    if not args.skip_table_check:
+        spec = load_spec(args.spec)
+        profile = verify_table(
+            spec, chips, args.table_min, args.table_max, table_name=args.url or ""
+        )
+        if profile is None:
+            print("Aborted: strategy stakes are not compatible with the table.")
+            return 1
+        chips = profile.chip_denominations  # reuse the confirmed chips for bet display
+
     if args.mode == "auto":
         if not args.url:
             print("auto mode needs --url", file=sys.stderr)
             return 1
-        run_auto(args.spec, args.url, limits, headed=headed)
+        run_auto(args.spec, args.url, limits, headed=headed, chips=chips)
         return 0
-    run_manual(args.spec, args.url, limits, headed=headed)
+    run_manual(args.spec, args.url, limits, headed=headed, chips=chips)
     return 0
 
 

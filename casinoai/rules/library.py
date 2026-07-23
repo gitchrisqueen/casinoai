@@ -54,6 +54,13 @@ class SuperFibonacciProgression:
             "parlay_of_fib_step_0based": self.parlay_from if self.mode == "parlay" else None,
         }
 
+    def schedule_view(self) -> dict:
+        return {
+            "fibonacci_stake_by_step_0based": list(self.FIB),
+            "martingale_stake_by_step_0based": list(self.MART),
+            "parlay_stake_rule": "2 x the fibonacci stake at 'parlay_of_fib_step_0based'",
+        }
+
     def _cap_fib(self, index: int) -> int:
         return min(index, len(self.FIB) - 1)
 
@@ -199,6 +206,12 @@ class MiniMaxProgression:
             "betting_group": self.group,
         }
 
+    def schedule_view(self) -> dict:
+        return {
+            "stake_rule": "the stake IS the chip count of the leftmost non-empty "
+            "stack — read it directly from chip_stacks_ABC; no lookup table",
+        }
+
     def advance(self, won: bool) -> None:
         i = self._leftmost()
         amount = self.stacks[i]
@@ -334,6 +347,16 @@ class PowerBaccaratProgression:
             "recent_strike_results_W_L": ["W" if w else "L" for w in self.strike_window],
             "consecutive_strike_losses": self.strike_consec_losses,
             "last_strike_step_0based": self.last_strike_index,
+        }
+
+    def schedule_view(self) -> dict:
+        trend_expanded = list(self.TREND) + [
+            round(self.TREND[-1] + 0.6 * i, 4) for i in range(1, 6)
+        ]
+        return {
+            "strike_stake_by_step_0based": list(self.STRIKE),
+            "counterstrike_stake_by_step_0based": list(self.COUNTER),
+            "trend_stake_by_step_0based": trend_expanded,
         }
 
     def _enter_strike(self, index: int) -> None:
@@ -516,6 +539,14 @@ class Formula57Progression:
             "profit_participation_step_0based": self.pp_index,
             "consecutive_losses": self.consec_losses,
             "recent_foundation_results_W_L": ["W" if w else "L" for w in self.f_window],
+        }
+
+    def schedule_view(self) -> dict:
+        pp_expanded = [1.4, 1.2] + [round(1.6 + 0.4 * i, 4) for i in range(0, 10)]
+        return {
+            "foundation_stake_by_step_0based": list(self.F),
+            "rapid_recovery_stake_by_step_0based": list(self.RR),
+            "profit_participation_stake_by_step_0based": pp_expanded,
         }
 
     def _enter_f(self, index: int) -> None:

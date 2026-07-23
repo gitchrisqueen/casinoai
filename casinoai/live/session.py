@@ -20,9 +20,20 @@ from casinoai.strategies.spec import StrategySpec
 DEFAULT_SESSIONS_DIR = Path("data/results/live")
 
 
+def _outcome_token(outcome) -> str:
+    """Compact record of one observed outcome, across games."""
+    if hasattr(outcome, "pocket"):  # roulette
+        return outcome.pocket
+    if hasattr(outcome, "winner"):  # baccarat
+        return outcome.winner.value
+    if hasattr(outcome, "result"):  # craps
+        return outcome.result.value
+    return str(outcome)
+
+
 class RecordedRound(BaseModel):
     round_index: int
-    pocket: str
+    outcome: str
     bets: list[dict]  # [{bet_type, stake_units}]
     net_units: float
     cumulative_units: float
@@ -95,7 +106,7 @@ def run_live_session(
         session.rounds.append(
             RecordedRound(
                 round_index=oracle.rounds_played,
-                pocket=outcome.pocket,
+                outcome=_outcome_token(outcome),
                 bets=[{"bet_type": b.bet_type, "stake_units": b.stake_units} for b in action.bets],
                 net_units=net,
                 cumulative_units=oracle.net_units,

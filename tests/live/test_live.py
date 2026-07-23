@@ -253,7 +253,7 @@ def test_manual_reader_drives_full_session():
         SessionLimits(max_bet_units=100, max_total_stake_units=100, stop_loss_units=1000),
         now="2026-07-23T00:00:00Z",
     )
-    assert [r.pocket for r in session.rounds] == ["2", "2", "1"]
+    assert [r.outcome for r in session.rounds] == ["2", "2", "1"]
     assert session.stop_reason == "table unavailable"
 
 
@@ -270,3 +270,293 @@ def test_cli_live_refuses_without_confirmation(tmp_path, capsys):
     rc = main(["live", str(spec_path)])
     assert rc == 1
     assert "Refusing to start" in capsys.readouterr().out
+
+
+# -- baccarat live sessions + tracking -------------------------------------------
+
+
+def test_baccarat_live_session_records_winners():
+    from casinoai.live.reader import RecordedBaccaratReader
+    from casinoai.rules.oracle import compile_spec  # noqa: F401
+    from tests.rules.test_power_baccarat import pb_spec
+
+    spec = pb_spec()
+    # player/banker/tie tape; ties push
+    reader = RecordedBaccaratReader(["banker", "player", "tie", "banker", "player"])
+    session = run_live_session(
+        spec,
+        reader,
+        NullBetPlacer(),
+        SessionLimits(
+            max_bet_units=100,
+            max_total_stake_units=100,
+            stop_loss_units=1000,
+            stop_win_units=1000,
+            max_rounds=100,
+        ),
+        now="2026-07-23T00:00:00Z",
+    )
+    # Tracker selection observes round 1 before betting, so that outcome is
+    # consumed but not a recorded bet round.
+    assert session.is_demo
+    assert len(session.rounds) >= 3
+    assert all(r.outcome in ("player", "banker", "tie") for r in session.rounds)
+
+
+def test_manual_baccarat_reader():
+    from casinoai.live.reader import ManualBaccaratReader
+
+    tape = iter(["b", "player", "t", "q"])
+    reader = ManualBaccaratReader(read_fn=lambda _p: next(tape))
+    assert reader.read_next_spin().winner.value == "banker"
+    assert reader.read_next_spin().winner.value == "player"
+    assert reader.read_next_spin().winner.value == "tie"
+    assert reader.read_next_spin() is None
+
+
+def test_tracking_joins_claim_sim_and_live(tmp_path):
+    from casinoai.backtest.runner import backtest
+    from casinoai.discovery.claims import ClaimedMetrics, StrategyClaim
+    from casinoai.live.session import save_session
+    from casinoai.live.tracker import build_tracking, render_tracking
+    from tests.rules.test_oracle import martingale_spec
+
+    spec = martingale_spec(bankroll={"stop_loss_units": 20, "stop_win_units": 10})
+    bt = backtest(spec, seeds=list(range(30)), max_rounds=500)
+    # one recorded live session
+    sess = run_live_session(
+        spec,
+        RecordedTableReader([str(p) for p in ([2] * 3 + [1] * 3) * 20]),
+        NullBetPlacer(),
+        SessionLimits(
+            max_bet_units=1000, max_total_stake_units=1000, stop_loss_units=20, stop_win_units=10
+        ),
+        now="2026-07-23T00:00:00Z",
+    )
+    save_session(sess, sessions_dir=tmp_path)
+    claim = StrategyClaim(
+        name="Martingale Red",
+        source_url="x",
+        claimed=ClaimedMetrics(win_rate=0.9, beats_house_edge=True),
+    )
+    t = build_tracking("Martingale Red", backtest=bt, claim=claim, sessions_dir=tmp_path)
+    assert t.live_sessions == 1
+    assert t.sim_ev_per_unit == bt.ev_per_unit_staked
+    assert t.claimed_win_rate == 0.9
+    md = render_tracking([t])
+    assert "Martingale Red" in md and "90% win" in md
+
+
+# -- baccarat auto (WebSocket) parsing -------------------------------------------
+
+
+def test_default_baccarat_parser():
+    from casinoai.live.playwright_adapter import default_baccarat_parser
+
+    assert default_baccarat_parser({"winner": "Player"}) == "player"
+    assert default_baccarat_parser({"result": "B"}) == "banker"
+    assert default_baccarat_parser({"outcome": "tie"}) == "tie"
+    # derive from scores
+    assert default_baccarat_parser({"playerScore": 8, "bankerScore": 5}) == "player"
+    assert default_baccarat_parser({"playerScore": 3, "bankerScore": 3}) == "tie"
+    assert default_baccarat_parser({"chat": "hi"}) is None
+
+
+def test_extract_winners_from_frame_handles_socketio():
+    from casinoai.live.playwright_adapter import extract_winners_from_frame
+
+    # nested + socket.io framing, mirroring the captured roulette format
+    frame = '3:::{"data":{"_type":"GameResult","winner":"banker"},"t":9}'
+    assert extract_winners_from_frame(frame) == ["banker"]
+    assert extract_winners_from_frame('[{"winningSide":"player"},{"chat":"x"}]') == ["player"]
+    assert extract_winners_from_frame("2::") == []  # heartbeat, no result
+
+
+def test_capture_hit_detection_covers_both_games():
+    from casinoai.live.operator import default_result_parser_hits
+
+    assert default_result_parser_hits('{"winningNumber":17}')  # roulette
+    assert default_result_parser_hits('3:::{"data":{"winner":"tie"}}')  # baccarat
+    assert not default_result_parser_hits("ping")
+
+
+# -- craps live + auto -----------------------------------------------------------
+
+
+def _passline_craps_spec():
+    from casinoai.strategies.spec import StrategySpec
+
+    return StrategySpec.model_validate(
+        {
+            "name": "Pass Line Flat",
+            "game": "craps",
+            "summary": "flat pass-line bet every coup",
+            "bets": [{"bet_type": "pass_line"}],
+            "progression": {"kind": "flat", "units": 1.0},
+            "bankroll": {"stop_loss_units": 1000},
+        }
+    )
+
+
+def test_craps_live_session_records_line_results():
+    from casinoai.live.reader import RecordedCrapsReader
+
+    spec = _passline_craps_spec()
+    reader = RecordedCrapsReader(["pass_win", "pass_lose", "dont_push", "pass_win"])
+    session = run_live_session(
+        spec,
+        reader,
+        NullBetPlacer(),
+        SessionLimits(
+            max_bet_units=100, max_total_stake_units=100, stop_loss_units=1000, max_rounds=100
+        ),
+        now="2026-07-23T00:00:00Z",
+    )
+    assert [r.outcome for r in session.rounds] == ["pass_win", "pass_lose", "dont_push", "pass_win"]
+    # pass line: +1 -1 (push on dont_push -> pass loses its 12) ... net checks accounting
+    assert session.net_units == pytest.approx(sum(r.net_units for r in session.rounds))
+
+
+def test_manual_craps_reader():
+    from casinoai.live.reader import ManualCrapsReader
+
+    tape = iter(["w", "lose", "push", "q"])
+    reader = ManualCrapsReader(read_fn=lambda _p: next(tape))
+    assert reader.read_next_spin().result.value == "pass_win"
+    assert reader.read_next_spin().result.value == "pass_lose"
+    assert reader.read_next_spin().result.value == "dont_push"
+    assert reader.read_next_spin() is None
+
+
+def test_default_craps_parser_and_frame():
+    from casinoai.live.playwright_adapter import (
+        default_craps_parser,
+        extract_line_results_from_frame,
+    )
+
+    assert default_craps_parser({"lineResult": "seven out"}) == "pass_lose"
+    assert default_craps_parser({"decision": "PASS"}) == "pass_win"
+    assert default_craps_parser({"chat": "hi"}) is None
+    frame = '3:::{"data":{"_type":"CoupResult","lineResult":"point_made"}}'
+    assert extract_line_results_from_frame(frame) == ["pass_win"]
+
+
+def test_extract_gpas_opcode45_roulette_result():
+    """Softswiss/gpas encodes a spin as a chr(0xFD)-delimited command; opcode 45,
+    field[2] = winning pocket (real captured format: 45ý0ý29ý200 -> 29)."""
+    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+
+    d = "\xfd"
+    frame = (
+        '3:::{"correlationId":"r","data":{"gameData":{"commands":['
+        f'"42{d}0","45{d}0{d}29{d}200","48{d}0{d}0"]}},"winAmount":200,'
+        '"_type":"com.pt.casino.platform.game.GameCommand"}}'
+    )
+    assert extract_pockets_from_frame(frame) == ["29"]
+    # a zero result and the config command (opcode 13100) must not false-match
+    frame0 = '3:::{"data":{"gameData":{"commands":["45\xfd0\xfd0\xfd200","13100\xfd0\xfd1.10"]}}}'
+    assert extract_pockets_from_frame(frame0) == ["0"]
+
+
+def test_wire_ws_capture_follows_new_tabs():
+    """The game often opens in a second tab; capture must follow it."""
+    from casinoai.live.playwright_adapter import wire_ws_capture
+
+    class FakeWS:
+        def __init__(self, url):
+            self.url = url
+            self.handlers = {}
+
+        def on(self, ev, cb):
+            self.handlers[ev] = cb
+
+    class FakeCtx:
+        def __init__(self):
+            self.page_cb = None
+
+        def on(self, ev, cb):
+            if ev == "page":
+                self.page_cb = cb
+
+    class FakePage:
+        def __init__(self, ctx):
+            self.context = ctx
+            self.ws_cb = None
+
+        def on(self, ev, cb):
+            if ev == "websocket":
+                self.ws_cb = cb
+
+    got = []
+    ctx = FakeCtx()
+    page = FakePage(ctx)
+    wire_ws_capture(page, got.append)
+
+    # original page's websocket delivers frames
+    ws1 = FakeWS("wss://a")
+    page.ws_cb(ws1)
+    ws1.handlers["framereceived"]("frame-from-page")
+    # a NEW TAB opens; its websocket must also be captured
+    tab = FakePage(ctx)
+    ctx.page_cb(tab)
+    ws2 = FakeWS("wss://game-tab")
+    tab.ws_cb(ws2)
+    ws2.handlers["framereceived"]("frame-from-new-tab")
+
+    assert got == ["frame-from-page", "frame-from-new-tab"]
+
+
+def test_onetouch_baccarat_result_parsing():
+    """Real OneTouch responses captured from casino.guru: the winner is in
+    `betAreaOutcomes` (PLAYER/BANKER/TIE + side bets), served over HTTP."""
+    from casinoai.live.playwright_adapter import (
+        default_baccarat_parser,
+        extract_winners_from_frame,
+    )
+
+    player_win = (
+        '{"gameId":"YIFsK9mQTO01a29d","state":"DEAL_DONE",'
+        '"playerCards":[{"card":"4c","handScore":"4"},{"card":"Ks","handScore":"4"}],'
+        '"dealerCards":[{"card":"Kd","handScore":"0"},{"card":"3s","handScore":"3"}],'
+        '"totalWin":1770.00,"betAreaOutcomes":["PLAYER","BIG"],"win":{"BIG":770,"PLAYER":1000}}'
+    )
+    banker_win = (
+        '{"gameId":"6zu1kThfNeRmOelk","state":"DEAL_DONE",'
+        '"playerCards":[{"card":"8d","handScore":"8"}],'
+        '"dealerCards":[{"card":"6s","handScore":"9"}],'
+        '"totalWin":0,"betAreaOutcomes":["BANKER","SMALL"],"win":{"LUCKY_SIX":0}}'
+    )
+    # a pre-deal state message carries no result
+    no_game = '{"gameId":"x","state":"NO_GAME","config":{"betLimit":{"min":1.0,"max":1000.0}}}'
+
+    assert extract_winners_from_frame(player_win) == ["player"]
+    assert extract_winners_from_frame(banker_win) == ["banker"]
+    assert extract_winners_from_frame(no_game) == []
+    # falls back to card handScores if betAreaOutcomes is ever absent
+    cards_only = (
+        '{"state":"DEAL_DONE",'
+        '"playerCards":[{"card":"9d","handScore":"9"}],'
+        '"dealerCards":[{"card":"7s","handScore":"7"}]}'
+    )
+    assert (
+        default_baccarat_parser(
+            {"playerCards": [{"handScore": "9"}], "dealerCards": [{"handScore": "7"}]}
+        )
+        == "player"
+    )
+    assert extract_winners_from_frame(cards_only) == ["player"]
+
+
+def test_baccarat_reader_dedups_resent_results():
+    """OneTouch can re-send the last DEAL_DONE; the reader dedups by gameId so a
+    hand isn't counted twice, while distinct hands each register."""
+    from casinoai.live.playwright_adapter import PlaywrightBaccaratReader
+
+    reader = PlaywrightBaccaratReader(page=None)  # no browser; drive _on_frame directly
+    hand1 = '{"gameId":"AAA","state":"DEAL_DONE","betAreaOutcomes":["PLAYER","BIG"]}'
+    hand2 = '{"gameId":"BBB","state":"DEAL_DONE","betAreaOutcomes":["BANKER","SMALL"]}'
+    reader._on_frame(hand1)
+    reader._on_frame(hand1)  # exact re-send of the same coup -> ignored
+    reader._on_frame(hand2)
+    reader._on_frame(hand2)  # ditto
+    assert reader._pending == ["player", "banker"]

@@ -24,16 +24,27 @@ bets for the next round (or stop if the rules say to stop).
 Stakes are in units. Follow the progression rules precisely from the history
 of your own wins and losses. If entry conditions are not met, bet nothing
 (empty bets list).
+
+Always fill the `computation` field FIRST and reason through it step by step
+before writing `bets`: identify the current mode and step index, LOOK UP the
+stake from the provided schedule table at that index (prefer a table lookup over
+evaluating a formula), then apply the selection directive to choose the bet.
+Your `bets` must match your own computation.
 """
 
 LEDGER_SYSTEM = """\
 
-CURRENT STATE is provided below and is AUTHORITATIVE — it is the exact,
-verified bookkeeping of where the strategy stands (mode, level indices,
-counters, chip stacks, selection directive). Trust it completely over any
-count you might reconstruct yourself. Your job is only to APPLY the strategy's
-rules to this state: map the level/mode to the correct stake, apply the
-selection directive to the correct bet, and honor entry/stop conditions.
+CURRENT STATE is provided below and is AUTHORITATIVE. It ALREADY reflects every
+past outcome, including the most recent round — it is the exact state to bet
+FROM right now. Do NOT re-apply the last round's win/loss transition; the level
+indices, mode, and counters shown are already advanced/reset for it. Trust this
+completely over any count you might reconstruct from the history.
+
+Your only job is to APPLY the strategy's rules to this current state:
+- read the current mode and level index, and map it to the correct stake using
+  the spec's bet series/formula (do NOT advance the index first);
+- follow the selection directive to pick the bet;
+- honor entry/stop conditions.
 Indices are 0-based unless stated otherwise.
 """
 
@@ -44,6 +55,14 @@ class AgentBet(BaseModel):
 
 
 class AgentDecision(BaseModel):
+    # `computation` is FIRST so the model works through it before committing to
+    # the bet (structured chain-of-thought). Do not reorder.
+    computation: str = Field(
+        description="Show your work step by step BEFORE deciding: (1) the current "
+        "mode and step index, (2) the stake you LOOK UP from the schedule at that "
+        "index (do not recompute a formula if a table is given), (3) the bet the "
+        "selection directive points to. Then fill bets to match."
+    )
     bets: list[AgentBet] = Field(default_factory=list)
     stop: bool = False
     rationale: str = Field(description="One short sentence: why this action follows the rules")
