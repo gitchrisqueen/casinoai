@@ -283,16 +283,23 @@ class Oracle:
         ):
             sel_view = self._registered_selection.state_view()
         elif isinstance(selection, FollowLagSelection):
-            tail = [
+            # Newest qualifying outcome first, labeled by how many steps back it
+            # is, so "lag N" is unambiguous (an unlabeled list was misread).
+            recent = [
                 getattr(o, selection.attribute, None)
-                for o in self.outcomes
+                for o in reversed(self.outcomes)
                 if getattr(o, selection.attribute, None) is not None
             ]
+            depth = max(selection.lag, 3)
+            positions = {f"{i + 1}_back": recent[i] for i in range(min(len(recent), depth))}
             sel_view = {
                 "kind": "follow_lag",
                 "attribute": selection.attribute,
-                "lag": selection.lag,
-                "qualifying_tail": tail[-max(selection.lag, 3) :],
+                "directive": (
+                    f"bet the {selection.attribute} whose value equals the "
+                    f"'{selection.lag}_back' entry below"
+                ),
+                "qualifying_by_steps_back": positions,
             }
         else:
             sel_view = {"kind": selection.kind}

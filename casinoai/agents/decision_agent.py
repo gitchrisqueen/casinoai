@@ -28,12 +28,17 @@ of your own wins and losses. If entry conditions are not met, bet nothing
 
 LEDGER_SYSTEM = """\
 
-CURRENT STATE is provided below and is AUTHORITATIVE — it is the exact,
-verified bookkeeping of where the strategy stands (mode, level indices,
-counters, chip stacks, selection directive). Trust it completely over any
-count you might reconstruct yourself. Your job is only to APPLY the strategy's
-rules to this state: map the level/mode to the correct stake, apply the
-selection directive to the correct bet, and honor entry/stop conditions.
+CURRENT STATE is provided below and is AUTHORITATIVE. It ALREADY reflects every
+past outcome, including the most recent round — it is the exact state to bet
+FROM right now. Do NOT re-apply the last round's win/loss transition; the level
+indices, mode, and counters shown are already advanced/reset for it. Trust this
+completely over any count you might reconstruct from the history.
+
+Your only job is to APPLY the strategy's rules to this current state:
+- read the current mode and level index, and map it to the correct stake using
+  the spec's bet series/formula (do NOT advance the index first);
+- follow the selection directive to pick the bet;
+- honor entry/stop conditions.
 Indices are 0-based unless stated otherwise.
 """
 
