@@ -26,12 +26,10 @@ TABLE_MAX="${TABLE_MAX:-1000}"
 case "$GAME" in
   baccarat)
     SPEC="strategies/approved/power-baccarat-v2.yaml"
-    LAYOUT="configs/table_layouts/power-baccarat.yaml"
     DEFAULT_URL="https://casino.guru/no-commission-baccarat-play-free"
     ;;
   roulette)
     SPEC="strategies/approved/power-pro-roulette-v2.yaml"
-    LAYOUT="configs/table_layouts/power-pro-roulette.yaml"
     DEFAULT_URL="https://casino.guru/casino-roulette-play-free"
     ;;
   *)
@@ -40,19 +38,21 @@ esac
 
 URL="${URL:-$DEFAULT_URL}"
 
-# Refuse to start if the table isn't calibrated (uses the real validator, so this
-# can't drift from what the driver actually requires).
+# Refuse to start unless this table is calibrated (looked up by URL). Uses the
+# real validator so the check can't drift from what the driver requires.
 if ! uv run python -c "
 import sys
-from casinoai.live.autoplay import load_layout, resolve_advance
-try:
-    resolve_advance(load_layout('$LAYOUT'))
-except Exception as exc:
-    print(exc); sys.exit(1)
+from casinoai.live.layouts import find_layout, status_of
+from casinoai.live.autoplay import is_calibrated
+lay = find_layout('$URL')
+if lay is None:
+    print('not calibrated'); sys.exit(1)
+if not is_calibrated(lay):
+    print(status_of(lay)); sys.exit(1)
 " 2>/dev/null; then
-  echo "!! $LAYOUT is UNCALIBRATED — nothing would be clicked correctly."
-  echo "   Calibrate this table once first:"
-  echo "     ./scripts/autoplay.sh $GAME \"\" calibrate"
+  echo "!! This table is not calibrated (or needs attention)."
+  echo "   Calibrate it once (an LLM proposes the controls; you just confirm):"
+  echo "     ./scripts/autoplay.sh $GAME \"$URL\" calibrate"
   exit 1
 fi
 
@@ -60,11 +60,10 @@ echo "============================================================"
 echo " COLLECTING $SESSIONS SESSIONS — $GAME (TESTING / FREE DEMO)"
 echo "   spec:   $SPEC"
 echo "   table:  $URL"
-echo "   layout: $LAYOUT"
 echo "============================================================"
 
 uv run python -m casinoai.live.operator "$SPEC" \
-  --url "$URL" --mode autoplay --layout "$LAYOUT" \
+  --url "$URL" --mode autoplay \
   --sessions "$SESSIONS" \
   --chips "$CHIPS" --table-min "$TABLE_MIN" --table-max "$TABLE_MAX"
 

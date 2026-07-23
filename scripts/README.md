@@ -123,20 +123,31 @@ refused, and the same hard bet/round/stop-loss caps apply. Physical clicks only
 outcomes** read off the wire — identical measurement to manual play.
 
 Because these games render on a canvas inside cross-origin iframes, the click
-positions can't be auto-detected, so each table is **calibrated once**:
+positions can't be read from the DOM. Instead a **vision model finds them in a
+screenshot** and you just confirm the markers. Each table is calibrated once and
+stored **keyed by its URL**, so later runs find it automatically:
 
 ```bash
-# 1) Calibrate (opens the demo; you reach the table, then read control x,y off a
-#    coordinate-grid screenshot). Saves configs/table_layouts/<game>.yaml
-./scripts/autoplay.sh baccarat "<demo-url>" calibrate
+# 1) Calibrate (LLM proposes every control; you confirm, and only fill in misses)
+./scripts/autoplay.sh baccarat "" calibrate
 
 # 2) Play hands-free (verifies stakes fit the table, confirms FREE mode, then runs)
-./scripts/autoplay.sh baccarat "<demo-url>" play 1,5,25,100,500
+./scripts/autoplay.sh baccarat "" play 1,5,25,100,500
 ```
 
-An uncalibrated layout **refuses to run** (no blind clicking). See
-[configs/table_layouts/README.md](../configs/table_layouts/README.md) for the
-control names, `settle_ms` tuning, and details.
+Calibration also covers the **startup** steps — 'Play for free', dialogs, and the
+turbo / disable-animations settings — so every later run clicks through them for
+you. An uncalibrated **or stale** layout refuses to run (no blind clicking); if a
+site redesign breaks the clicks, auto-play marks the layout STALE and tells you to
+re-calibrate, keeping the points you already confirmed.
+
+```bash
+# what's calibrated, and is it still good?
+uv run python -m casinoai.live.operator strategies/approved/power-baccarat-v2.yaml --list-layouts
+```
+
+See [configs/table_layouts/README.md](../configs/table_layouts/README.md) for the
+control names, `settle_ms` tuning, and the vision-model comparison.
 
 ## collect_sessions.sh / collect_all.sh — the H3b data run
 
@@ -157,15 +168,14 @@ rollup prints and tracking refreshes.
 Both refuse to start if the table isn't calibrated. Override the table limits with
 `TABLE_MIN=`/`TABLE_MAX=` env vars if your table differs from min 1 / max 1000.
 
-**Setup pause:** before any clicking you get a checklist and an ENTER prompt —
-reach the betting table, confirm FREE/DEMO, **turn on turbo / turn off animations**,
-and place one bet so 'repeat' has something to repeat. Nothing is clicked until you
-press ENTER. With turbo on, shorten the post-deal wait:
+**Setup pause:** before any clicking you get an ENTER prompt. If the table's
+startup sequence is calibrated it's replayed for you (Play-for-free, dialogs,
+turbo) and you only confirm FREE/DEMO; otherwise you get the manual checklist.
+Nothing is clicked until you press ENTER. With turbo on, shorten the post-deal wait:
 
 ```bash
 uv run python -m casinoai.live.operator strategies/approved/power-baccarat-v2.yaml \
-  --url "<url>" --mode autoplay --layout configs/table_layouts/power-baccarat.yaml \
-  --sessions 10 --settle-ms 1500
+  --url "<url>" --mode autoplay --sessions 10 --settle-ms 1500
 ```
 
 ---

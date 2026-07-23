@@ -8,7 +8,6 @@ from casinoai.live.autoplay import (
     LayoutError,
     SilentPlacer,
     TableLayout,
-    controls_for,
     free_mode_confirmed,
     load_layout,
     resolve_advance,
@@ -73,9 +72,48 @@ def test_layout_round_trips_through_yaml(tmp_path):
 
 
 def test_controls_per_game():
-    assert controls_for("roulette") == ["repeat_bet", "spin"]
-    assert "deal" in controls_for("baccarat")
-    assert "roll" in controls_for("craps")
+    from casinoai.live.vision import controls_for_game
+
+    adv = [s.name for s in controls_for_game("roulette", "advance")]
+    assert adv == ["repeat_bet", "spin"]
+    assert "deal" in [s.name for s in controls_for_game("baccarat", "advance")]
+    assert "roll" in [s.name for s in controls_for_game("craps", "advance")]
+    # Startup controls are shared across games and drive the hands-free start.
+    startup = [s.name for s in controls_for_game("roulette", "startup")]
+    assert "play_for_free" in startup and "turbo" in startup
+
+
+def test_startup_sequence_may_be_empty_but_must_be_mapped():
+    from casinoai.live.autoplay import resolve_startup
+
+    ok = TableLayout(name="t", game="roulette")
+    assert resolve_startup(ok) == []  # no startup is legitimate
+
+    bad = TableLayout(name="t", game="roulette", startup=["play_for_free"])
+    with pytest.raises(LayoutError):
+        resolve_startup(bad)
+
+
+def test_needs_attention_flags_missing_and_low_confidence():
+    from casinoai.live.autoplay import ControlPoint as CP
+    from casinoai.live.autoplay import needs_attention
+
+    layout = TableLayout(
+        name="t",
+        game="roulette",
+        points={
+            "repeat_bet": CP(x=1, y=1, source="llm", confidence=0.2, confirmed=False),
+            "spin": CP(x=2, y=2, source="llm", confidence=0.9, confirmed=False),
+            "play_for_free": CP(x=3, y=3, source="manual", confidence=0.1, confirmed=True),
+        },
+        startup=["play_for_free", "turbo"],
+        advance=["repeat_bet", "spin"],
+    )
+    pending = needs_attention(layout)
+    assert "turbo" in pending  # referenced but missing
+    assert "repeat_bet" in pending  # unconfirmed + weak confidence
+    assert "spin" not in pending  # unconfirmed but confident
+    assert "play_for_free" not in pending  # human-confirmed wins
 
 
 def test_advancing_reader_advances_once_then_reads():

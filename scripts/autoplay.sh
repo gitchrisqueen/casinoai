@@ -27,11 +27,9 @@ CHIPS="${4:-${CHIPS:-}}"
 case "$GAME" in
   baccarat)
     SPEC="strategies/approved/power-baccarat-v2.yaml"
-    LAYOUT="configs/table_layouts/power-baccarat.yaml"
     DEFAULT_URL="https://casino.guru/no-commission-baccarat-play-free" ;;
   roulette)
     SPEC="strategies/approved/power-pro-roulette-v2.yaml"
-    LAYOUT="configs/table_layouts/power-pro-roulette.yaml"
     DEFAULT_URL="https://casino.guru/casino-roulette-play-free" ;;
   *) echo "usage: $0 <baccarat|roulette> [demo-url] [calibrate|play] [chips]"; exit 1 ;;
 esac
@@ -39,7 +37,7 @@ esac
 URL="${URL:-$DEFAULT_URL}"
 
 if [ "$ACTION" = "calibrate" ]; then
-  uv run python -m casinoai.live.operator "$SPEC" --url "$URL" --calibrate --layout "$LAYOUT"
+  uv run python -m casinoai.live.operator "$SPEC" --url "$URL" --calibrate
   exit 0
 fi
 
@@ -48,7 +46,7 @@ if [ -n "$CHIPS" ]; then CHIP_ARGS=(--chips "$CHIPS"); fi
 
 echo "AUTO-PLAY (TESTING) — $GAME — make sure the table is in FREE mode."
 uv run python -m casinoai.live.operator "$SPEC" --url "$URL" --mode autoplay \
-  --layout "$LAYOUT" "${CHIP_ARGS[@]}"
+  "${CHIP_ARGS[@]}"
 
 echo
 echo "==> Updating claimed vs. simulated vs. live tracking ..."

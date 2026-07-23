@@ -14,13 +14,21 @@ HARD RULES (unchanged, enforced here and in SessionGuard):
   * Hard bet / round / stop-loss caps in code, independent of the spec.
   * We NEVER bypass bot-detection or captchas, and NEVER wager real money.
 
-Because the provider games render on a WebGL/canvas inside cross-origin iframes,
-the clickable control positions can't be auto-detected (the browser blocks
-reading events inside cross-origin frames). So each table is CALIBRATED once:
-we screenshot the table with a coordinate grid overlaid and you record the pixel
-(x, y) of each control (select-chip, bet spot(s), deal/spin, new-round). Those
-points are replayed every round. Calibration is per table/viewport; re-run it if
-the layout changes.
+Each table is CALIBRATED once and stored against its URL (casinoai.live.layouts),
+in three descending preferences:
+
+  1. DOM selector (casinoai.live.dom) — deterministic and resize-proof, because
+     Playwright clicks the element's own centre. Reaches into cross-origin
+     iframes, so aggregator chrome ('Play for free', dialogs, settings/turbo) is
+     usually real DOM.
+  2. Vision-proposed pixel (casinoai.live.vision) — for the game surface itself
+     when it's drawn on a WebGL/canvas and has no elements to select. A human
+     confirms the drawn markers before anything is clicked.
+  3. Manual pixel — read off a coordinate-grid screenshot, for the remainder.
+
+Pixels are rescaled to the current viewport at click time, so resizing degrades
+gracefully rather than silently misclicking. Two phases are calibrated: `startup`
+(clicked once — free-play, dialogs, turbo) and `advance` (clicked every round).
 """
 
 from __future__ import annotations
@@ -52,26 +60,52 @@ def free_mode_confirmed(answer: str) -> bool:
 
 class ControlPoint(BaseModel):
     """A viewport pixel to click (top-document coordinates; Playwright dispatches
-    the click through to the iframe canvas underneath)."""
+    the click through to the iframe canvas underneath).
+
+    `source` records who placed it ('llm' or 'manual') and `confirmed` whether a
+    human has eyeballed it — only unconfirmed/missing points need the operator's
+    attention on a re-calibration."""
 
     x: float
     y: float
     note: str = ""
+    source: str = "manual"  # dom | llm | manual
+    confidence: float = 1.0
+    confirmed: bool = False
+    # DOM-first: when set, the click resolves this selector instead of using the
+    # pixel, which survives window resizes and small layout shifts. Pixels are the
+    # fallback for canvas-drawn controls that have no element at all.
+    selector: str = ""
+    frame_url: str = ""
 
 
 class TableLayout(BaseModel):
-    """Calibrated click map for one demo table. `advance` is the ordered list of
-    control names clicked every round to place a (repeat) bet and deal."""
+    """Calibrated click map for one demo table, keyed by `id` (derived from the
+    game URL — see casinoai.live.layouts).
 
+    Two click phases:
+      * `startup` — clicked ONCE when a session opens: 'Play for free', dismiss
+        dialogs, open settings, enable turbo / disable animations, close settings,
+        place the first bet. Calibrating these makes every later auto start
+        hands-free.
+      * `advance` — clicked EVERY round to place a (repeat) bet and deal.
+    """
+
+    id: str = ""
     name: str
     game: str  # roulette | baccarat | craps
     url: str = ""
     viewport_w: int = 1280
     viewport_h: int = 800
     points: dict[str, ControlPoint] = Field(default_factory=dict)
+    startup: list[str] = Field(default_factory=list)
     advance: list[str] = Field(default_factory=list)
     click_pause_ms: int = 700  # wait between clicks within a round
     settle_ms: int = 5000  # wait after the last click for the result to arrive
+    startup_pause_ms: int = 2500  # waits during the one-off startup sequence
+    calibrated_at: str = ""
+    vision_model: str = ""
+    stale: bool = False  # set when the table stopped responding — re-calibrate
 
 
 class LayoutError(ValueError):
@@ -96,6 +130,42 @@ def resolve_advance(layout: TableLayout) -> list[ControlPoint]:
     return [layout.points[n] for n in layout.advance]
 
 
+def resolve_startup(layout: TableLayout) -> list[ControlPoint]:
+    """The one-off startup click sequence (Play-for-free, turbo, first bet).
+    Unlike `advance` this may legitimately be empty — a table where the operator
+    prefers to set up by hand still auto-plays."""
+    missing = [n for n in layout.startup if n not in layout.points]
+    if missing:
+        raise LayoutError(
+            f"Layout '{layout.name}' startup references unmapped control(s): {missing}."
+        )
+    return [layout.points[n] for n in layout.startup]
+
+
+def needs_attention(layout: TableLayout, min_confidence: float = 0.55) -> list[str]:
+    """Control names the operator still has to resolve: referenced by a sequence
+    but missing, or present-but-unconfirmed with weak model confidence. This is
+    what keeps re-calibration to 'confirm, and click only what's uncalibrated'."""
+    out: list[str] = []
+    for name in list(layout.startup) + list(layout.advance):
+        pt = layout.points.get(name)
+        if pt is None:
+            out.append(name)
+        elif not pt.confirmed and pt.confidence < min_confidence:
+            out.append(name)
+    return list(dict.fromkeys(out))  # stable order, de-duplicated
+
+
+def is_calibrated(layout: TableLayout) -> bool:
+    """True when the table can actually be driven right now."""
+    try:
+        resolve_advance(layout)
+        resolve_startup(layout)
+    except LayoutError:
+        return False
+    return not layout.stale and not needs_attention(layout)
+
+
 def load_layout(path: str | Path) -> TableLayout:
     data = yaml.safe_load(Path(path).read_text())
     return TableLayout.model_validate(data)
@@ -112,16 +182,51 @@ def save_layout(layout: TableLayout, path: str | Path) -> Path:
 
 
 class AutoPlayDriver:
-    """Replays a calibrated click sequence to advance the demo one round."""
+    """Replays calibrated click sequences: `run_startup()` once to get from the
+    landing page to a ready betting table (Play-for-free, dialogs, turbo), then
+    `advance()` every round."""
 
-    def __init__(self, page, layout: TableLayout):
+    def __init__(self, page, layout: TableLayout, validate_advance: bool = True):
         self._page = page
         self._layout = layout
-        self._seq = resolve_advance(layout)  # validates up front
+        # During calibration the advance points don't exist yet, so allow deferral.
+        self._seq = resolve_advance(layout) if validate_advance else []
+
+    def click(self, pt: ControlPoint) -> None:
+        """DOM-first: click the element if this point has a selector that still
+        resolves, else fall back to the calibrated pixel — rescaled to whatever
+        the viewport is now, so a resized window doesn't misclick."""
+        from casinoai.live.dom import resolve_locator, scale_point
+
+        if pt.selector:
+            loc = resolve_locator(self._page, pt.selector, pt.frame_url)
+            if loc is not None:
+                loc.click()
+                return
+        size = self._page.viewport_size or {
+            "width": self._layout.viewport_w,
+            "height": self._layout.viewport_h,
+        }
+        x, y = scale_point(
+            pt.x,
+            pt.y,
+            self._layout.viewport_w,
+            self._layout.viewport_h,
+            size["width"],
+            size["height"],
+        )
+        self._page.mouse.click(x, y)
+
+    def run_startup(self) -> None:
+        """Click the one-off startup sequence. Waits longer between these than
+        between round clicks — dialogs and settings panels animate in."""
+        for pt in resolve_startup(self._layout):
+            self.click(pt)
+            self._page.wait_for_timeout(self._layout.startup_pause_ms)
 
     def advance(self) -> None:
         for pt in self._seq:
-            self._page.mouse.click(pt.x, pt.y)
+            self.click(pt)
             self._page.wait_for_timeout(self._layout.click_pause_ms)
         self._page.wait_for_timeout(self._layout.settle_ms)
 
@@ -201,57 +306,13 @@ _GRID_JS = """
 _GRID_REMOVE_JS = "() => document.getElementById('__cai_grid__')?.remove()"
 
 
-def controls_for(game: str) -> list[str]:
-    """The control points to calibrate for each game's simplest advance loop."""
-    game = game.lower()
-    if game == "roulette":
-        # Repeat the previous bet, then spin (most demos keep the last chips).
-        return ["repeat_bet", "spin"]
-    if game == "baccarat":
-        return ["chip_min", "player_box", "deal"]
-    if game == "craps":
-        return ["chip_min", "pass_line", "roll"]
-    return ["bet_spot", "deal"]
-
-
-def calibrate(
-    page, game: str, name: str, url: str, out_path: str | Path, read_fn=input
-) -> TableLayout:
-    """Interactive one-time calibration. Assumes `page` is already on the betting
-    table (operator navigated there). Overlays a coordinate grid, screenshots it,
-    and asks the operator to read off each control's (x, y). Returns/saves a
-    TableLayout. Playwright-driven; not unit-tested."""
-    step = 50
-    dims = page.evaluate(_GRID_JS, step)
-    shot = Path(out_path).with_suffix(".calibration.png")
-    shot.parent.mkdir(parents=True, exist_ok=True)
-    page.screenshot(path=str(shot))
-    print(f"\nSaved a coordinate-grid screenshot to: {shot}")
-    print("Open it, read the pixel (x, y) of each control below, and enter them.\n")
-
-    points: dict[str, ControlPoint] = {}
-    for ctrl in controls_for(game):
-        raw = (read_fn(f"  {ctrl} — x,y (blank to skip): ") or "").strip()
-        if not raw:
-            continue
-        xs, ys = raw.replace(" ", "").split(",")[:2]
-        points[ctrl] = ControlPoint(x=float(xs), y=float(ys), note=ctrl)
-
+def grid_screenshot(page, out_path: str | Path, step: int = 50) -> Path:
+    """Screenshot the page with a labelled coordinate grid overlaid — the fallback
+    when the vision model can't see a control and the operator reads the pixel off
+    by hand. The overlay is removed again afterwards."""
+    page.evaluate(_GRID_JS, step)
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(out))
     page.evaluate(_GRID_REMOVE_JS)
-    layout = TableLayout(
-        name=name,
-        game=game,
-        url=url,
-        viewport_w=int(dims["W"]),
-        viewport_h=int(dims["H"]),
-        points=points,
-        advance=[c for c in controls_for(game) if c in points],
-    )
-    save_layout(layout, out_path)
-    print(f"\nSaved layout -> {out_path}")
-    try:
-        resolve_advance(layout)
-        print("Layout is playable. ✓")
-    except LayoutError as exc:
-        print(f"⚠ Not yet playable: {exc}")
-    return layout
+    return out
