@@ -460,11 +460,39 @@ class PlaywrightCrapsReader:
 class OperatorBetPlacer:
     """OBSERVER mode: the human places bets by hand. This placer only prints the
     oracle's instruction for the operator to follow; it drives no UI, wagers
-    nothing automatically. The safe default for live/demo runs."""
+    nothing automatically. The safe default for live/demo runs.
 
-    def __init__(self, printer=print):
+    When told the table's base unit (unit_size) and chips, it prints the real
+    currency amount and the exact chip stack for each bet, so the instruction
+    lines up with the verified table-compatible stakes instead of raw units."""
+
+    def __init__(
+        self, printer=print, unit_size: float = 1.0, chips=None, currency: str = "credits"
+    ):
         self._print = printer
+        self._unit = unit_size or 1.0
+        self._chips = chips
+        self._currency = currency
+
+    def _one(self, b) -> str:
+        # Show units (the strategy's language) plus, when we know the base unit /
+        # table chips, the real currency amount and the exact chip stack — so the
+        # instruction is the verified table-compatible amount, not a raw unit.
+        if self._unit == 1.0 and not self._chips:
+            return f"{b.stake_units:g}u on {b.bet_type}"
+        amount = round(b.stake_units * self._unit, 2)
+        note = f"{amount:g} {self._currency} ({b.stake_units:g}u"
+        if self._chips:
+            from casinoai.live.table import chip_breakdown
+
+            stack = chip_breakdown(amount, self._chips)
+            note += (
+                "; chips " + "+".join(f"{c:g}" for c in stack)
+                if stack
+                else "; NOT PLACEABLE with this table's chips"
+            )
+        return f"{note}) on {b.bet_type}"
 
     def place_bets(self, bets: list) -> None:
-        desc = ", ".join(f"{b.stake_units:g}u on {b.bet_type}" for b in bets)
+        desc = ", ".join(self._one(b) for b in bets)
         self._print(f"[OPERATOR] Place: {desc}")

@@ -61,12 +61,36 @@ def test_operator_verify_table_flow(capsys):
     spec = load_spec("strategies/approved/power-baccarat-v2.yaml")
     # $5-min table, no $1 chips: verify_table should flag it and, on "n", abort
     answers = iter(["5,25,100,500", "5", "1000", "n"])
-    ok = verify_table(spec, read_fn=lambda _p: next(answers))
+    aborted = verify_table(spec, read_fn=lambda _p: next(answers))
     out = capsys.readouterr().out
     assert "below the table minimum" in out
-    assert ok is False
+    assert aborted is None  # None == abort
 
-    # $1 table with $1 chips: passes without asking to proceed
+    # $1 table with $1 chips: passes and returns the confirmed profile (chips reused)
     answers2 = iter(["1,5,25,100,500", "1", "1000"])
-    ok2 = verify_table(spec, read_fn=lambda _p: next(answers2))
-    assert ok2 is True
+    profile = verify_table(spec, read_fn=lambda _p: next(answers2))
+    assert profile is not None
+    assert profile.chip_denominations == [1, 5, 25, 100, 500]
+
+
+def test_operator_bet_placer_prints_currency_and_chips():
+    """A 1.2u bet on a $5-unit table is shown as its real amount ($6) and the
+    exact chip stack, so the instruction matches the verified stakes — not '1.2u'
+    read as an unplaceable $1.20."""
+    from types import SimpleNamespace
+
+    from casinoai.live.playwright_adapter import OperatorBetPlacer
+
+    lines: list[str] = []
+    placer = OperatorBetPlacer(printer=lines.append, unit_size=5.0, chips=[1, 5, 25, 100, 500])
+    placer.place_bets([SimpleNamespace(stake_units=1.2, bet_type="player")])
+    assert "6 credits" in lines[0]
+    assert "1.2u" in lines[0]
+    assert "chips 5+1" in lines[0]
+
+    # Raw-units fallback when the table isn't known.
+    plain: list[str] = []
+    OperatorBetPlacer(printer=plain.append).place_bets(
+        [SimpleNamespace(stake_units=1.2, bet_type="player")]
+    )
+    assert plain[0] == "[OPERATOR] Place: 1.2u on player"

@@ -84,12 +84,11 @@ def _detect_limits_from_capture(path: Path = Path("data/results/live/ws_capture.
     return (float(m.group(1)), float(m.group(2))) if m else None
 
 
-def verify_table(
-    spec, chips=None, table_min=None, table_max=None, table_name="", read_fn=input
-) -> bool:
+def verify_table(spec, chips=None, table_min=None, table_max=None, table_name="", read_fn=input):
     """Check the strategy's required stakes against the live table's chips/limits.
     Prompts the operator for anything not passed as a flag (auto-filling from a
-    prior capture's betLimit). Returns True to proceed, False to abort."""
+    prior capture's betLimit). Returns the resolved TableProfile to proceed
+    (truthy), or None to abort — so the caller can reuse the confirmed chips."""
     from casinoai.live.table import TableProfile, check_table, render_check
 
     detected = _detect_limits_from_capture()
@@ -98,7 +97,7 @@ def verify_table(
         chips = [float(x) for x in (raw or "").replace(" ", "").split(",") if x]
     if not chips:
         print("No chip denominations given — cannot verify table; aborting.", file=sys.stderr)
-        return False
+        return None
     if table_min is None:
         d = f" [{detected[0]:g}]" if detected else ""
         raw = (read_fn(f"Table minimum bet{d}: ") or "").strip()
@@ -117,9 +116,9 @@ def verify_table(
     check = check_table(spec, profile)
     print("\n" + render_check(spec, profile, check) + "\n")
     if check.ok and not check.dynamic:
-        return True
+        return profile
     ans = (read_fn("Proceed anyway? [y/N]: ") or "").strip().lower()
-    return ans in ("y", "yes")
+    return profile if ans in ("y", "yes") else None
 
 
 def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path:
@@ -243,7 +242,13 @@ def _auto_reader_for(spec, page):
     )
 
 
-def run_auto(spec_path: str, url: str, limits: SessionLimits, headed: bool = True):
+def _placer_for(spec, chips=None):
+    """Bet placer that prints currency + chip stacks (verified stakes), not raw
+    units, whenever we know the base unit / table chips."""
+    return OperatorBetPlacer(unit_size=spec.bankroll.unit_size or 1.0, chips=chips)
+
+
+def run_auto(spec_path: str, url: str, limits: SessionLimits, headed: bool = True, chips=None):
     """Read outcomes off the WebSocket automatically and run the oracle loop."""
     sync_playwright = _require_playwright()
 
@@ -254,13 +259,15 @@ def run_auto(spec_path: str, url: str, limits: SessionLimits, headed: bool = Tru
         page = browser.new_page()
         reader = _auto_reader_for(spec, page)
         reader.attach(url)
-        session = run_live_session(spec, reader, OperatorBetPlacer(), limits, table_url=url)
+        session = run_live_session(spec, reader, _placer_for(spec, chips), limits, table_url=url)
         browser.close()
     path = save_session(session)
     _print_summary(session, path)
 
 
-def run_manual(spec_path: str, url: str | None, limits: SessionLimits, headed: bool = True):
+def run_manual(
+    spec_path: str, url: str | None, limits: SessionLimits, headed: bool = True, chips=None
+):
     """Open the game (if a URL is given) for the human to watch/play, and read
     winning pockets from the terminal."""
     spec = load_spec(spec_path)
@@ -275,7 +282,7 @@ def run_manual(spec_path: str, url: str | None, limits: SessionLimits, headed: b
         page.goto(url)
     try:
         session = run_live_session(
-            spec, _manual_reader_for(spec), OperatorBetPlacer(), limits, table_url=url
+            spec, _manual_reader_for(spec), _placer_for(spec, chips), limits, table_url=url
         )
     finally:
         if browser:
@@ -322,20 +329,24 @@ def main(argv: list[str] | None = None) -> int:
         capture(args.url, args.seconds, out, headed=headed)
         return 0
     # Verify the strategy's stakes fit the table (chips/min/max) before playing.
+    chips = [float(x) for x in args.chips.split(",")] if args.chips else None
     if not args.skip_table_check:
-        chips = [float(x) for x in args.chips.split(",")] if args.chips else None
         spec = load_spec(args.spec)
-        if not verify_table(spec, chips, args.table_min, args.table_max, table_name=args.url or ""):
+        profile = verify_table(
+            spec, chips, args.table_min, args.table_max, table_name=args.url or ""
+        )
+        if profile is None:
             print("Aborted: strategy stakes are not compatible with the table.")
             return 1
+        chips = profile.chip_denominations  # reuse the confirmed chips for bet display
 
     if args.mode == "auto":
         if not args.url:
             print("auto mode needs --url", file=sys.stderr)
             return 1
-        run_auto(args.spec, args.url, limits, headed=headed)
+        run_auto(args.spec, args.url, limits, headed=headed, chips=chips)
         return 0
-    run_manual(args.spec, args.url, limits, headed=headed)
+    run_manual(args.spec, args.url, limits, headed=headed, chips=chips)
     return 0
 
 

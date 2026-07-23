@@ -91,6 +91,22 @@ def _placeable(amount: float, chips: list[float]) -> bool:
     return amount >= m - _TOL and abs(q - round(q)) < _TOL
 
 
+def chip_breakdown(amount: float, chips: list[float]) -> list[float] | None:
+    """Greedy stack of chips that sums to `amount` (largest-first). Returns None
+    if it can't be made exactly with the given chips."""
+    if not chips or amount <= _TOL:
+        return None
+    out: list[float] = []
+    rem = amount
+    for c in sorted(chips, reverse=True):
+        while rem >= c - _TOL:
+            out.append(c)
+            rem -= c
+        if abs(rem) < _TOL:
+            break
+    return out if abs(rem) < _TOL else None
+
+
 def check_table(spec: StrategySpec, profile: TableProfile) -> TableCheck:
     unit = spec.bankroll.unit_size or 1.0
     stakes = currency_stakes(spec)
