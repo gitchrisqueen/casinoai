@@ -37,7 +37,20 @@ def assert_demo_mode(url: str) -> None:
     """Refuse anything that isn't demonstrably demo/free-play. We look for the
     common launcher signals; if we cannot prove demo, we do not proceed."""
     lowered = url.lower()
-    demo_signals = ("realmode=0", "mode=demo", "funmode", "play=fun", "demo=1", "/demo")
+    demo_signals = (
+        "realmode=0",
+        "mode=demo",
+        "funmode",
+        "play=fun",
+        "demo=1",
+        "/demo",
+        "play-free",
+        "free-play",
+        "/free",
+        "for-fun",
+        "playforfun",
+        "gamedetail",
+    )
     real_signals = ("realmode=1", "mode=real", "play=real")
     if any(s in lowered for s in real_signals):
         raise RuntimeError(f"Refusing: URL indicates real-money mode: {url}")
@@ -46,6 +59,24 @@ def assert_demo_mode(url: str) -> None:
             "Refusing: could not confirm demo/free-play mode from the launcher URL. "
             "An operator must verify demo mode before running."
         )
+
+
+def wire_ws_capture(page, on_frame, sent=False) -> None:
+    """Attach a WebSocket-frame listener to `page` AND to any new tab/popup
+    opened in its browser context — many casino aggregators launch the game in a
+    SECOND tab, whose WebSocket the original page never sees. `on_frame(payload)`
+    is called per received frame (and per sent frame too if `sent=True`)."""
+
+    def hook(pg):
+        def on_ws(ws):
+            ws.on("framereceived", on_frame)
+            if sent:
+                ws.on("framesent", on_frame)
+
+        pg.on("websocket", on_ws)
+
+    hook(page)
+    page.context.on("page", hook)  # future tabs/popups (the real game window)
 
 
 def default_result_parser(payload: dict) -> str | None:
@@ -271,11 +302,7 @@ class PlaywrightRouletteReader:
         assert_demo_mode(game_url)
         self._is_demo = True
 
-        def on_ws(ws):
-            ws.on("framereceived", self._on_frame)
-
-        # Capture spin results from every websocket the game opens.
-        self._page.on("websocket", on_ws)
+        wire_ws_capture(self._page, self._on_frame)
         self._page.goto(game_url)
 
     def _on_frame(self, payload) -> None:
@@ -313,7 +340,7 @@ class PlaywrightBaccaratReader:
     def attach(self, game_url: str) -> None:
         assert_demo_mode(game_url)
         self._is_demo = True
-        self._page.on("websocket", lambda ws: ws.on("framereceived", self._on_frame))
+        wire_ws_capture(self._page, self._on_frame)
         self._page.goto(game_url)
 
     def _on_frame(self, payload) -> None:
@@ -349,7 +376,7 @@ class PlaywrightCrapsReader:
     def attach(self, game_url: str) -> None:
         assert_demo_mode(game_url)
         self._is_demo = True
-        self._page.on("websocket", lambda ws: ws.on("framereceived", self._on_frame))
+        wire_ws_capture(self._page, self._on_frame)
         self._page.goto(game_url)
 
     def _on_frame(self, payload) -> None:

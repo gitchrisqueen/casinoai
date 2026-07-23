@@ -456,3 +456,51 @@ def test_extract_gpas_opcode45_roulette_result():
     # a zero result and the config command (opcode 13100) must not false-match
     frame0 = '3:::{"data":{"gameData":{"commands":["45\xfd0\xfd0\xfd200","13100\xfd0\xfd1.10"]}}}'
     assert extract_pockets_from_frame(frame0) == ["0"]
+
+
+def test_wire_ws_capture_follows_new_tabs():
+    """The game often opens in a second tab; capture must follow it."""
+    from casinoai.live.playwright_adapter import wire_ws_capture
+
+    class FakeWS:
+        def __init__(self, url):
+            self.url = url
+            self.handlers = {}
+
+        def on(self, ev, cb):
+            self.handlers[ev] = cb
+
+    class FakeCtx:
+        def __init__(self):
+            self.page_cb = None
+
+        def on(self, ev, cb):
+            if ev == "page":
+                self.page_cb = cb
+
+    class FakePage:
+        def __init__(self, ctx):
+            self.context = ctx
+            self.ws_cb = None
+
+        def on(self, ev, cb):
+            if ev == "websocket":
+                self.ws_cb = cb
+
+    got = []
+    ctx = FakeCtx()
+    page = FakePage(ctx)
+    wire_ws_capture(page, got.append)
+
+    # original page's websocket delivers frames
+    ws1 = FakeWS("wss://a")
+    page.ws_cb(ws1)
+    ws1.handlers["framereceived"]("frame-from-page")
+    # a NEW TAB opens; its websocket must also be captured
+    tab = FakePage(ctx)
+    ctx.page_cb(tab)
+    ws2 = FakeWS("wss://game-tab")
+    tab.ws_cb(ws2)
+    ws2.handlers["framereceived"]("frame-from-new-tab")
+
+    assert got == ["frame-from-page", "frame-from-new-tab"]

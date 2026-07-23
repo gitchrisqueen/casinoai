@@ -81,23 +81,32 @@ def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path
         browser = p.chromium.launch(headless=not headed)
         page = browser.new_page()
 
-        def on_ws(ws):
-            _refuse_if_real_money([ws.url])
-            ws.on(
-                "framereceived",
-                lambda payload: frames.append(
-                    {"ws_url": ws.url, "dir": "recv", "payload": str(payload)[:1000]}
-                ),
-            )
-            ws.on(
-                "framesent",
-                lambda payload: frames.append(
-                    {"ws_url": ws.url, "dir": "sent", "payload": str(payload)[:1000]}
-                ),
-            )
+        # Capture from the page AND any new tab/popup (the game often opens one).
+        def hook(pg):
+            def on_ws(ws):
+                _refuse_if_real_money([ws.url])
+                ws.on(
+                    "framereceived",
+                    lambda payload: frames.append(
+                        {"ws_url": ws.url, "dir": "recv", "payload": str(payload)[:1000]}
+                    ),
+                )
+                ws.on(
+                    "framesent",
+                    lambda payload: frames.append(
+                        {"ws_url": ws.url, "dir": "sent", "payload": str(payload)[:1000]}
+                    ),
+                )
 
-        page.on("websocket", on_ws)
+            pg.on("websocket", on_ws)
+
+        hook(page)
+        page.context.on("page", hook)
         print(f"Opening {url} — capturing WebSocket frames for {seconds}s ...")
+        print(
+            "  (if the game opens in a NEW TAB, that's fine — we follow it. "
+            "Click 'Play for free' and play a few rounds.)"
+        )
         page.goto(url)
         page.wait_for_timeout(seconds * 1000)
         browser.close()
