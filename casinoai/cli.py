@@ -114,6 +114,15 @@ def _cmd_report(args: argparse.Namespace) -> int:
     print(render_markdown(rows))
     path = write_report()
     print(f"\nsaved -> {path}")
+
+    from casinoai.reports import conformance_matrix
+
+    conf_reports = conformance_matrix.load_conformance()
+    if conf_reports:
+        print()
+        print(conformance_matrix.render_markdown(conf_reports))
+        conf_path = conformance_matrix.write_report()
+        print(f"\nsaved -> {conf_path}")
     return 0
 
 
