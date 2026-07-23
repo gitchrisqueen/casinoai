@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "weaviate",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "weaviate"],
+      "port": 8080
+    },
+    {
+      "name": "unstructured-api",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "unstructured"],
+      "port": 8001
+    },
+    {
+      "name": "grafana",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "grafana", "prometheus"],
+      "port": 3000
+    },
+    {
+      "name": "prometheus",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "prometheus"],
+      "port": 9090
+    }
+  ]
+}

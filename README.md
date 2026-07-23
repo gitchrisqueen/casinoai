@@ -1,64 +1,72 @@
-To design a LangChain agent for playing a casino game, we can follow a modular approach, breaking down the agent into multiple sub-agents. Each sub-agent will be responsible for a particular aspect of the game, from understanding the game's rules to deciding the best strategy for betting. This modular design ensures that each component can be developed, tested, and refined independently.
+# CasinoAI
 
-# LangChain Casino Game Agent Design
+**Systemized AI testing of casino betting strategies** — from a strategy described in a PDF to quantified, reproducible performance results.
 
-## 1. Knowledge Base Agent
+Casino strategy books make bold claims ("Win $5,000 a day playing roulette!"). This project builds the machinery to test those claims scientifically:
 
-### Purpose:
-To maintain and manage the comprehensive database of rules, strategies, and facts related to the casino game.
+1. **Parse** — extract each strategy from its PDF into a machine-executable specification (`StrategySpec`) using LLM structured extraction, with a human review gate for ambiguities.
+2. **Conform** — prove an LLM agent actually follows the strategy, by replaying identical game states to the agent and to a deterministic rule-engine oracle and measuring decision-match rate.
+3. **Measure** — backtest each strategy over millions of simulated rounds (EV, drawdown, risk of ruin), then compare against sessions played on live/demo casino tables via browser automation.
 
-### Responsibilities:
-- Store the rules of the casino game.
-- Maintain a list of winning combinations or patterns.
-- Update the knowledge base with new findings or strategies.
+The hypotheses under test and the full roadmap are in **[PLAN.md](PLAN.md)**. Contributor/agent instructions are in **[CLAUDE.md](CLAUDE.md)**.
 
-## 2. Game Strategy Agent
+> **Expectation setting:** most betting systems cannot beat the house edge, and our reports will say so when that's what the data shows. The product is the *testing capability* — a pipeline that turns any strategy document into honest, reproducible numbers.
 
-### Purpose:
-To decide the best game strategy based on the current game state.
+## How it works
 
-### Responsibilities:
-- Analyze the current state of the game.
-- Consult the Knowledge Base Agent for potential winning patterns or strategies.
-- Provide recommendations on the next move or action.
+```
+PDF ─► Docling parser ─► LLM extraction ─► StrategySpec (YAML, human-approved)
+                                                │
+                    ┌───────────────────────────┼──────────────────────────┐
+                    ▼                           ▼                          ▼
+            Rule-engine oracle        Conformance harness           Monte Carlo backtest
+            (deterministic truth)     (LLM agent vs. oracle)        (millions of rounds)
+                    │                                                      │
+                    └────────────► Live/demo play (Playwright) ◄───────────┘
+                                   observed vs. predicted results
+```
 
-## 3. Betting Strategy Agent
+## Multi-provider LLM support
 
-### Purpose:
-To determine the optimal betting amount based on the current game state and the player's financial position.
+Every LLM step runs against your choice of provider, so results can be compared across models:
 
-### Responsibilities:
-- Analyze the player's current financial position.
-- Assess the risk and reward of the current game state.
-- Decide on the betting amount, considering both the game strategy and the player's risk tolerance.
+| Provider | Config | Notes |
+|----------|--------|-------|
+| OpenAI | `OPENAI_API_KEY` | |
+| Anthropic (Claude) | `ANTHROPIC_API_KEY` | |
+| Ollama | `OLLAMA_BASE_URL` | Local models, zero cost — ideal for bulk conformance runs |
 
-## 4. Game Interpreter Agent
+## Quick start
 
-### Purpose:
-To understand and translate the game's events, outcomes, and states.
+```bash
+git clone <repo> && cd Casinoai
+uv sync
+cp .env.example .env   # add your API keys
 
-### Responsibilities:
-- Parse the game's visual or textual output to extract meaningful data.
-- Translate the game's outcomes into structured data for analysis.
-- Provide feedback to the Game Strategy Agent and Betting Strategy Agent.
+# Parse a strategy PDF and extract its spec
+uv run casinoai parse pdfs/Casino_Guides/RouletteLadder.pdf
+uv run casinoai extract data/parsed/RouletteLadder.md --model anthropic/claude-sonnet-5
+uv run casinoai review strategies/drafts/roulette-ladder.yaml
 
-## 5. Game Playing Agent
+# Test conformance and backtest
+uv run casinoai conform strategies/approved/roulette-ladder.yaml --model openai/gpt-5.2 --rounds 1000
+uv run casinoai backtest strategies/approved/roulette-ladder.yaml --rounds 1000000 --seeds 30
+```
 
-### Purpose:
-To interact with the game interface, executing actions and making moves.
+## Repository layout
 
-### Responsibilities:
-- Take inputs from the Game Strategy Agent and Betting Strategy Agent.
-- Interact with the game interface to execute moves, place bets, and perform other in-game actions.
-- Provide feedback on the outcome of the actions to the Game Interpreter Agent.
+- `casinoai/` — the package: LLM gateway, PDF parsing, strategy schema, game engines, conformance harness, backtester, live-play adapter (see [CLAUDE.md](CLAUDE.md) for the module map)
+- `pdfs/` — source strategy documents (roulette, blackjack, craps, baccarat systems)
+- `strategies/approved/` — human-approved, versioned strategy specs
+- `data/` — parsed documents and run results (gitignored)
+- `legacy/` — the 2023 LangChain/Weaviate prototype, kept for reference
 
-# Workflow:
+## Responsible use
 
-1. **Initialization**: Load the rules and strategies into the Knowledge Base Agent.
-2. **Game Start**: The Game Playing Agent starts the game and communicates the game state to the Game Interpreter Agent.
-3. **Interpretation**: The Game Interpreter Agent translates the game state and communicates it to the Game Strategy Agent and Betting Strategy Agent.
-4. **Decision Making**: Both the Game Strategy Agent and Betting Strategy Agent decide on the next move and betting amount, respectively.
-5. **Action Execution**: The Game Playing Agent takes the decisions and interacts with the game.
-6. **Feedback Loop**: After each move, the game's outcome is fed back into the Game Interpreter Agent, and the cycle repeats.
+- Live-table automation targets **demo/free-play mode only** and is human-initiated with hard bet and session limits enforced in code.
+- Automating real-money play violates most casinos' terms of service and gambling regulations in many jurisdictions; this project does not do it.
+- Nothing here is gambling advice. The math says the house wins; this project measures exactly how.
 
-By following this modular design, the LangChain casino game agent can be adaptable, extensible, and capable of playing various casino games with optimal strategies.
+## Status
+
+Currently executing Phase 0–1 of [PLAN.md](PLAN.md): repo modernization (uv, ruff, pytest) and the multi-provider LLM gateway. The 2023 prototype (LangChain + Weaviate RAG ingestion) is being retired to `legacy/`.

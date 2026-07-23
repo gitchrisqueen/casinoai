@@ -1,0 +1,45 @@
+[project]
+name = "casinoai"
+version = "0.1.0"
+description = "Systemized testing of casino betting strategies: PDF extraction, LLM conformance, Monte Carlo backtesting"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "litellm>=1.93.0",
+    "pydantic>=2.7",
+    "pymupdf4llm==0.0.27",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+casinoai = "casinoai.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+    "ruff>=0.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["casinoai"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "llm: tests that call an LLM (skipped by default; run with -m llm)",
+]
+addopts = "-m 'not llm'"
