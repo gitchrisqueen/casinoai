@@ -51,7 +51,10 @@ def test_ledger_facts_passes_state_to_agent(monkeypatch):
         seen_ledgers.append(ledger)
         return (
             AgentDecision(
-                bets=[AgentBet(bet_type="red", stake_units=1.0)], stop=False, rationale=""
+                computation="c",
+                bets=[AgentBet(bet_type="red", stake_units=1.0)],
+                stop=False,
+                rationale="",
             ),
             0.0,
         )
@@ -78,7 +81,10 @@ def test_ledger_none_sends_no_state(monkeypatch):
         seen.append(ledger)
         return (
             AgentDecision(
-                bets=[AgentBet(bet_type="red", stake_units=1.0)], stop=False, rationale=""
+                computation="c",
+                bets=[AgentBet(bet_type="red", stake_units=1.0)],
+                stop=False,
+                rationale="",
             ),
             0.0,
         )

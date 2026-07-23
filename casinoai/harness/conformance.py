@@ -105,8 +105,8 @@ def run_conformance(
                 Divergence(
                     round_index=round_index,
                     expected=oracle_action.model_dump(),
-                    actual=agent_decision.model_dump(exclude={"rationale"}),
-                    rationale=agent_decision.rationale,
+                    actual=agent_decision.model_dump(exclude={"rationale", "computation"}),
+                    rationale=agent_decision.computation or agent_decision.rationale,
                     history_len=len(history),
                     net_units=oracle.net_units,
                 )

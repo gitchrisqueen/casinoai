@@ -91,6 +91,23 @@ class _ProgressionState:
         stake (the agent still maps this to a bet size using the spec's rules)."""
         return {"kind": self.p.kind, "step_index_0based": self.index}
 
+    def schedule_view(self) -> dict:
+        """The stake series as an explicit lookup table, so the agent looks up
+        rather than computing a formula."""
+        p = self.p
+        if isinstance(p, FlatProgression):
+            return {"stake_rule": f"flat {p.units} every round"}
+        if isinstance(p, LadderProgression):
+            return {"stake_by_step_0based": [s.stake_units for s in p.steps]}
+        if isinstance(p, MultiplierProgression):
+            return {"stake_by_step_0based": [round(float(p.factor**i), 6) for i in range(12)]}
+        if isinstance(p, FibonacciProgression):
+            fib = [1.0, 1.0]
+            while len(fib) < 14:
+                fib.append(fib[-1] + fib[-2])
+            return {"stake_by_step_0based": fib[:14]}
+        return {}
+
     def stake(self) -> float:
         p = self.p
         if isinstance(p, FlatProgression):
@@ -309,13 +326,18 @@ class Oracle:
             if hasattr(self.progression, "state_view")
             else {"kind": getattr(self.progression, "kind", "unknown")}
         )
-        return {
+        ledger = {
             "net_units": round(self.net_units, 4),
             "rounds_played": self.rounds_played,
             "progression": prog_view,
             "bet_selection": sel_view,
             "recent_outcomes": [_outcome_token(self.spec.game, o) for o in self.outcomes[-8:]],
         }
+        # #1 schedules-as-tables: expose stake series as lookup tables so the
+        # agent reads the value at its step instead of evaluating a formula.
+        if hasattr(self.progression, "schedule_view"):
+            ledger["stake_schedules"] = self.progression.schedule_view()
+        return ledger
 
 
 def _outcome_token(game: GameType, outcome: Any) -> str:

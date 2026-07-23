@@ -24,6 +24,12 @@ bets for the next round (or stop if the rules say to stop).
 Stakes are in units. Follow the progression rules precisely from the history
 of your own wins and losses. If entry conditions are not met, bet nothing
 (empty bets list).
+
+Always fill the `computation` field FIRST and reason through it step by step
+before writing `bets`: identify the current mode and step index, LOOK UP the
+stake from the provided schedule table at that index (prefer a table lookup over
+evaluating a formula), then apply the selection directive to choose the bet.
+Your `bets` must match your own computation.
 """
 
 LEDGER_SYSTEM = """\
@@ -49,6 +55,14 @@ class AgentBet(BaseModel):
 
 
 class AgentDecision(BaseModel):
+    # `computation` is FIRST so the model works through it before committing to
+    # the bet (structured chain-of-thought). Do not reorder.
+    computation: str = Field(
+        description="Show your work step by step BEFORE deciding: (1) the current "
+        "mode and step index, (2) the stake you LOOK UP from the schedule at that "
+        "index (do not recompute a formula if a table is given), (3) the bet the "
+        "selection directive points to. Then fill bets to match."
+    )
     bets: list[AgentBet] = Field(default_factory=list)
     stop: bool = False
     rationale: str = Field(description="One short sentence: why this action follows the rules")

@@ -17,6 +17,7 @@ def perfect_agent(spec, history, net_units, model=None, ledger=None):
     action = shadow.next_action()
     return (
         AgentDecision(
+            computation="c",
             bets=[AgentBet(bet_type=b.bet_type, stake_units=b.stake_units) for b in action.bets],
             stop=action.stop,
             rationale="shadow oracle",
@@ -29,7 +30,10 @@ def stubborn_agent(spec, history, net_units, model=None, ledger=None):
     """Always flat-bets 1 unit on red — wrong whenever the progression climbs."""
     return (
         AgentDecision(
-            bets=[AgentBet(bet_type="red", stake_units=1.0)], stop=False, rationale="flat"
+            computation="c",
+            bets=[AgentBet(bet_type="red", stake_units=1.0)],
+            stop=False,
+            rationale="flat",
         ),
         0.0,
     )
@@ -50,7 +54,8 @@ def test_divergences_are_recorded_with_context(monkeypatch):
     assert report.divergences
     d = report.divergences[0]
     assert d.expected["bets"] != d.actual["bets"] or d.expected["stop"] != d.actual["stop"]
-    assert d.rationale == "flat"
+    # rationale now carries the agent's step-by-step computation when present
+    assert d.rationale == "c"
 
 
 def test_session_stops_when_oracle_stops(monkeypatch):
