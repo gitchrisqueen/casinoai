@@ -98,6 +98,25 @@ def _cmd_conform(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    from casinoai.reports.leaderboard import (
+        build_leaderboard,
+        load_backtests,
+        render_markdown,
+        write_report,
+    )
+
+    summaries = load_backtests()
+    if not summaries:
+        print("No backtest results in data/results/ — run `casinoai backtest` first.")
+        return 1
+    rows = build_leaderboard(summaries)
+    print(render_markdown(rows))
+    path = write_report()
+    print(f"\nsaved -> {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="casinoai",
@@ -134,6 +153,9 @@ def main(argv: list[str] | None = None) -> int:
     p_backtest.add_argument("--rounds", type=int, default=10_000, help="Max rounds per session")
     p_backtest.add_argument("--seeds", type=int, default=30, help="Number of seeded sessions")
     p_backtest.set_defaults(func=_cmd_backtest)
+
+    p_report = sub.add_parser("report", help="Cross-strategy leaderboard from backtest results")
+    p_report.set_defaults(func=_cmd_report)
 
     args = parser.parse_args(argv)
     if args.command is None:
