@@ -545,3 +545,18 @@ def test_onetouch_baccarat_result_parsing():
         == "player"
     )
     assert extract_winners_from_frame(cards_only) == ["player"]
+
+
+def test_baccarat_reader_dedups_resent_results():
+    """OneTouch can re-send the last DEAL_DONE; the reader dedups by gameId so a
+    hand isn't counted twice, while distinct hands each register."""
+    from casinoai.live.playwright_adapter import PlaywrightBaccaratReader
+
+    reader = PlaywrightBaccaratReader(page=None)  # no browser; drive _on_frame directly
+    hand1 = '{"gameId":"AAA","state":"DEAL_DONE","betAreaOutcomes":["PLAYER","BIG"]}'
+    hand2 = '{"gameId":"BBB","state":"DEAL_DONE","betAreaOutcomes":["BANKER","SMALL"]}'
+    reader._on_frame(hand1)
+    reader._on_frame(hand1)  # exact re-send of the same coup -> ignored
+    reader._on_frame(hand2)
+    reader._on_frame(hand2)  # ditto
+    assert reader._pending == ["player", "banker"]

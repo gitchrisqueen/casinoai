@@ -236,6 +236,15 @@ def default_baccarat_parser(payload: dict) -> str | None:
     return None
 
 
+_GAME_ID_RE = re.compile(r'"gameId"\s*:\s*"([^"]+)"')
+
+
+def _frame_game_id(raw: str) -> str | None:
+    """The provider's per-coup id, used to dedup re-sent results (OneTouch)."""
+    m = _GAME_ID_RE.search(raw)
+    return m.group(1) if m else None
+
+
 def extract_winners_from_frame(
     raw: str, parser: ResultParser = default_baccarat_parser
 ) -> list[str]:
@@ -375,6 +384,7 @@ class PlaywrightBaccaratReader:
         self._parser = parser
         self._timeout_s = timeout_s
         self._pending: list[str] = []
+        self._seen: set[str] = set()  # dedup by gameId — OneTouch re-sends results
         self._is_demo = False
 
     def attach(self, game_url: str) -> None:
@@ -384,7 +394,16 @@ class PlaywrightBaccaratReader:
         self._page.goto(game_url)
 
     def _on_frame(self, payload) -> None:
-        self._pending.extend(extract_winners_from_frame(payload, self._parser))
+        winners = extract_winners_from_frame(payload, self._parser)
+        if not winners:
+            return
+        # A result frame is one coup; dedup by its gameId (or the raw payload)
+        # so a re-sent/refreshed result isn't counted twice.
+        key = _frame_game_id(payload) or payload
+        if key in self._seen:
+            return
+        self._seen.add(key)
+        self._pending.extend(winners[:1])
 
     def is_demo(self) -> bool:
         return self._is_demo
