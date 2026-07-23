@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from casinoai.engines.baccarat import BaccaratEngine, BaccaratOutcome
 from casinoai.engines.blackjack import BlackjackEngine
+from casinoai.engines.craps import CrapsEngine, CrapsOutcome, LineResult
 from casinoai.engines.roulette import RouletteEngine, RouletteOutcome
 from casinoai.rules.library import PROGRESSIONS, SELECTIONS
 from casinoai.strategies.spec import (
@@ -58,6 +59,13 @@ def _outcome_matches(game: GameType, outcome: Any, token: str) -> bool:
     if game == GameType.BACCARAT:
         b: BaccaratOutcome = outcome
         return b.winner.value == token
+    if game == GameType.CRAPS:
+        c: CrapsOutcome = outcome
+        if token in ("pass", "pass_win"):
+            return c.result == LineResult.PASS_WIN
+        if token in ("dont_pass", "pass_lose"):
+            return c.result == LineResult.PASS_LOSE
+        return False
     raise CompileError(f"Outcome matching not implemented for {game}")
 
 
@@ -65,6 +73,7 @@ _SETTLERS = {
     GameType.ROULETTE: RouletteEngine.settle,
     GameType.BACCARAT: BaccaratEngine.settle,
     GameType.BLACKJACK: BlackjackEngine.settle,
+    GameType.CRAPS: CrapsEngine.settle,
 }
 
 
