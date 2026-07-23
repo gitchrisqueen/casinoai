@@ -31,18 +31,28 @@ def load_conformance(results_dir: Path = DEFAULT_RESULTS_DIR) -> list[Conformanc
 
 
 def build_cells(reports: list[ConformanceReport]) -> list[MatrixCell]:
-    return [
-        MatrixCell(
-            strategy=r.strategy,
-            model=r.model,
-            decisions=r.decisions,
-            matches=r.matches,
-            match_rate=r.match_rate,
-            divergences=len(r.divergences),
-            cost_usd=r.total_cost_usd,
+    """Aggregate reports into one cell per (strategy, model), pooling decisions
+    and matches across seeds so multi-seed runs give a combined match rate."""
+    grouped: dict[tuple[str, str], list[ConformanceReport]] = {}
+    for r in reports:
+        grouped.setdefault((r.strategy, r.model), []).append(r)
+
+    cells = []
+    for (strategy, model), group in grouped.items():
+        decisions = sum(r.decisions for r in group)
+        matches = sum(r.matches for r in group)
+        cells.append(
+            MatrixCell(
+                strategy=strategy,
+                model=model,
+                decisions=decisions,
+                matches=matches,
+                match_rate=(matches / decisions) if decisions else 0.0,
+                divergences=sum(len(r.divergences) for r in group),
+                cost_usd=sum(r.total_cost_usd for r in group),
+            )
         )
-        for r in reports
-    ]
+    return cells
 
 
 def render_markdown(reports: list[ConformanceReport]) -> str:

@@ -98,6 +98,41 @@ def _cmd_conform(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_matrix(args: argparse.Namespace) -> int:
+    from casinoai.harness.matrix import run_matrix
+
+    spec_paths = args.specs or sorted(str(p) for p in Path("strategies/approved").glob("*.yaml"))
+    models = args.models
+    seeds = list(range(args.seeds))
+    print(
+        f"H2 matrix: {len(spec_paths)} specs × {len(models)} models × {len(seeds)} seeds "
+        f"× {args.rounds} rounds, {args.workers} workers"
+    )
+
+    def on_done(result, err):
+        if err is not None:
+            print(
+                f"  ✗ {getattr(result, 'spec_path', result)} × "
+                f"{getattr(result, 'model', '?')}: {err}"
+            )
+        else:
+            print(
+                f"  ✓ {result.strategy} × {result.model} (seed {result.seed}): "
+                f"{result.match_rate:.0%} ({result.matches}/{result.decisions})"
+            )
+
+    run_matrix(
+        spec_paths,
+        models,
+        rounds=args.rounds,
+        seeds=seeds,
+        max_workers=args.workers,
+        on_done=on_done,
+    )
+    print("\nMatrix complete — run `casinoai report` for the aggregated table.")
+    return 0
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     from casinoai.reports.leaderboard import (
         build_leaderboard,
@@ -197,6 +232,21 @@ def main(argv: list[str] | None = None) -> int:
     p_backtest.add_argument("--rounds", type=int, default=10_000, help="Max rounds per session")
     p_backtest.add_argument("--seeds", type=int, default=30, help="Number of seeded sessions")
     p_backtest.set_defaults(func=_cmd_backtest)
+
+    p_matrix = sub.add_parser("matrix", help="Parallel H2 conformance matrix (spec × model × seed)")
+    p_matrix.add_argument(
+        "--specs", nargs="*", default=None, help="Spec YAMLs (default: all approved)"
+    )
+    p_matrix.add_argument(
+        "--models",
+        nargs="+",
+        default=["ollama-cloud/deepseek-v4-flash"],
+        help="Model ids (default: deepseek-v4-flash — fast, reliable, flat-rate)",
+    )
+    p_matrix.add_argument("--rounds", type=int, default=30)
+    p_matrix.add_argument("--seeds", type=int, default=1, help="Number of seeds per cell")
+    p_matrix.add_argument("--workers", type=int, default=6, help="Concurrent cells")
+    p_matrix.set_defaults(func=_cmd_matrix)
 
     p_report = sub.add_parser("report", help="Cross-strategy leaderboard from backtest results")
     p_report.set_defaults(func=_cmd_report)
