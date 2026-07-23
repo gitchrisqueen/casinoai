@@ -90,7 +90,8 @@ def backtest(spec: StrategySpec, seeds: list[int], max_rounds: int) -> BacktestS
     ruinous = sum(
         1
         for s in sessions
-        if s.stop_reason and ("stop-loss" in s.stop_reason or "exhausted" in s.stop_reason)
+        if s.stop_reason
+        and any(k in s.stop_reason for k in ("stop-loss", "exhausted", "series lost"))
     )
     return BacktestSummary(
         strategy=spec.name,

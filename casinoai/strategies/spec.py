@@ -71,6 +71,14 @@ class LadderStep(BaseModel):
     note: str | None = None
 
 
+class WinRetreat(BaseModel):
+    """After a win at a step in [from_step, to_step] (1-based), jump to `go_to`."""
+
+    from_step: int
+    to_step: int
+    go_to: int
+
+
 class LadderProgression(BaseModel):
     """Explicit stake table: advance/retreat through fixed steps."""
 
@@ -78,7 +86,16 @@ class LadderProgression(BaseModel):
     steps: list[LadderStep]
     advance_on: Literal["loss", "win"] = "loss"
     retreat_steps: int = Field(default=1, description="Steps back on the opposite outcome")
+    win_retreat_map: list[WinRetreat] | None = Field(
+        default=None,
+        description="Overrides retreat_steps: step-dependent jumps after a win "
+        "(e.g. Power Pro: win at 1-6 → 1, 7-8 → 2, 9 → 3)",
+    )
     reset_at_end: bool = True
+    bust_at_end: bool = Field(
+        default=False,
+        description="Losing at the last step ends the session (overrides reset_at_end)",
+    )
 
 
 class CustomProgression(BaseModel):
@@ -98,6 +115,44 @@ Progression = Annotated[
     | FibonacciProgression
     | LadderProgression
     | CustomProgression,
+    Field(discriminator="kind"),
+]
+
+
+# --- Bet selection (which of the listed bets to place this round) ----------------
+
+
+class FixedSelection(BaseModel):
+    """Place every bet in `bets`, every betting round."""
+
+    kind: Literal["fixed"] = "fixed"
+
+
+class FollowLagSelection(BaseModel):
+    """Bet the group that hit `lag` qualifying outcomes ago (e.g. Power Pro:
+    the dozen from the 2nd preceding non-zero spin). No bet until enough
+    qualifying history exists."""
+
+    kind: Literal["follow_lag"] = "follow_lag"
+    attribute: Literal["dozen", "column", "color", "parity", "half", "winner"] = Field(
+        description="Outcome attribute that names the bet group"
+    )
+    lag: int = Field(default=1, description="1 = previous qualifying outcome, 2 = one before it")
+    skip_non_qualifying: bool = Field(
+        default=True, description="Ignore outcomes without the attribute (zeros) in the history"
+    )
+
+
+class CustomSelection(BaseModel):
+    """Selection logic the schema cannot express — must be reviewed by a human."""
+
+    kind: Literal["custom"] = "custom"
+    description: str
+    rules: list[str] = Field(default_factory=list)
+
+
+BetSelection = Annotated[
+    FixedSelection | FollowLagSelection | CustomSelection,
     Field(discriminator="kind"),
 ]
 
@@ -136,6 +191,9 @@ class BankrollRules(BaseModel):
     stop_loss_units: float | None = None
     stop_win_units: float | None = None
     max_bet_units: float | None = None
+    max_rounds: int | None = Field(
+        default=None, description="Strategy-prescribed cap on betting rounds per session"
+    )
 
 
 class SourceRef(BaseModel):
@@ -167,6 +225,10 @@ class StrategySpec(BaseModel):
     summary: str = Field(description="2-4 sentence plain-English summary of the strategy")
     table_rules: TableRules = Field(default_factory=TableRules)
     bets: list[BetSpec]
+    bet_selection: BetSelection = Field(
+        default_factory=FixedSelection,
+        description="How to choose among `bets` each round; fixed = place them all",
+    )
     entry_conditions: list[Condition] = Field(
         default_factory=list, description="When to start/place bets; empty means bet every round"
     )

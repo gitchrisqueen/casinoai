@@ -1,0 +1,115 @@
+name: Power Pro Roulette
+version: 2
+game: roulette
+also_applicable_to: []
+summary: 'One wager per spin on a dozen, chosen as the dozen that hit two non-zero
+  spins earlier. Nine-level negative progression (units of $5 base: 1, 1.2, 1.6, 2.4,
+  4, 6, 9, 13, 20); advance one level on any loss; after a win at levels 1-6 return
+  to level 1, at 7-8 to level 2, at 9 to level 3. A game ends at the target win of
+  8 units, on losing the full series, or after 25 betting rounds.'
+table_rules:
+  variant: european
+  min_bet: null
+  max_bet: null
+  notes:
+  - Modeled on the single-zero wheel the book designs for; its double-zero 'hedge'
+    variant has no stated procedure and is not modeled.
+  - Two qualifying (non-zero) spins must be observed before the first bet.
+bets:
+- bet_type: dozen_1
+  description: First dozen (1-12)
+- bet_type: dozen_2
+  description: Second dozen (13-24)
+- bet_type: dozen_3
+  description: Third dozen (25-36)
+bet_selection:
+  kind: follow_lag
+  attribute: dozen
+  lag: 2
+  skip_non_qualifying: true
+entry_conditions: []
+progression:
+  kind: ladder
+  steps:
+  - stake_units: 1.0
+    note: null
+  - stake_units: 1.2
+    note: null
+  - stake_units: 1.6
+    note: null
+  - stake_units: 2.4
+    note: null
+  - stake_units: 4.0
+    note: null
+  - stake_units: 6.0
+    note: null
+  - stake_units: 9.0
+    note: null
+  - stake_units: 13.0
+    note: null
+  - stake_units: 20.0
+    note: null
+  advance_on: loss
+  retreat_steps: 1
+  win_retreat_map:
+  - from_step: 1
+    to_step: 6
+    go_to: 1
+  - from_step: 7
+    to_step: 8
+    go_to: 2
+  - from_step: 9
+    to_step: 9
+    go_to: 3
+  reset_at_end: true
+  bust_at_end: true
+bankroll:
+  unit_size: 5.0
+  session_bankroll_units: 60.0
+  stop_loss_units: 60.0
+  stop_win_units: 8.0
+  max_bet_units: 20.0
+  max_rounds: 25
+state_tracked:
+- Queue of the last two non-zero dozen outcomes (1, 2, or 3)
+- Current betting level in the progression ladder
+- Cumulative net win/loss for the current game
+- Whether the previous spin was zero or double-zero (counts as a loss but is not added
+  to the dozen history)
+assumptions:
+- The player must observe two initial spins before placing the first bet.
+- Zeros and double-zeros are ignored when determining the second preceding dozen outcome;
+  however, they count as a loss and advance the betting progression one level.
+- Target win per game is 8 times the base bet unit.
+- Session bankroll equals the prescribed Game Bankroll for the base bet level (e.g.,
+  $300 for a $5 base bet, which is 60 units).
+- The system claims effectiveness on both single-zero and double-zero wheels, though
+  single-zero is preferred.
+- A 'Power Pro Light' variant exists with an 8-level series and lower bankroll requirements,
+  but the primary strategy uses the full 9-level series.
+ambiguities: []
+source:
+  pdf_path: pdfs/Casino_Guides/PowerProRoulette-book.pdf
+  sha256: 66455d29d44546ce70cae759d61429f9997bfaff6492c8635fc157d2562b9da9
+  parser: pymupdf4llm
+approval:
+  approved_by: claude (review delegated by chris, 2026-07-22)
+  approved_at: '2026-07-23T02:58:55.420403+00:00'
+  annotations:
+  - 'Draft v1 ambiguities resolved as follows:'
+  - '''Level 9 or 10'' retreat (p.101): the $5 series defines 9 levels; wins at level
+    9 go to level 3. The ''10'' applies only to larger-base variants not modeled here.'
+  - "Level-8 stake conflict (Appendix D says 60, main text says 65): using 65 (13\
+    \ units) \u2014 every table and sample game in the main text uses 65."
+  - 'Double-zero hedge: excluded; the book states no procedure for it. Modeled on
+    the single-zero wheel the system is designed for.'
+  - '90% Rule / ''close enough'' game end: modeled as the exact 8-unit target win.
+    The vague early-quit guideline is not deterministic and slightly favors the player
+    less than ''close enough'' would; noted as a conservative simplification.'
+  - 'Column-bet applicability (p.95): statistically identical to dozens; modeled dozens
+    per the author''s own recommendation.'
+  - 'Total Bankroll = 2x Game Bankroll (p.118,122), buy-in >= Game Bankroll (p.124),
+    mandatory break after a losing game (p.124): cross-session money management, outside
+    the per-session simulator; recorded here for the live-play phase.'
+  - 'Zeros: count as a lost bet and advance the progression; excluded from the dozen-selection
+    history (book pp. as extracted).'

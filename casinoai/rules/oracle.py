@@ -19,6 +19,7 @@ from casinoai.engines.roulette import RouletteEngine, RouletteOutcome
 from casinoai.strategies.spec import (
     FibonacciProgression,
     FlatProgression,
+    FollowLagSelection,
     GameType,
     LadderProgression,
     MultiplierProgression,
@@ -68,6 +69,7 @@ class _ProgressionState:
     def __init__(self, progression):
         self.p = progression
         self.index = 0
+        self.busted = False
         self._fib = [1.0, 1.0]
 
     def stake(self) -> float:
@@ -109,7 +111,19 @@ class _ProgressionState:
             if trigger:
                 self.index += 1
                 if self.index >= len(p.steps):
-                    self.index = 0 if p.reset_at_end else len(p.steps) - 1
+                    if p.bust_at_end:
+                        self.busted = True
+                        self.index = len(p.steps) - 1
+                    else:
+                        self.index = 0 if p.reset_at_end else len(p.steps) - 1
+            elif p.win_retreat_map is not None:
+                step = self.index + 1  # 1-based
+                for rule in p.win_retreat_map:
+                    if rule.from_step <= step <= rule.to_step:
+                        self.index = rule.go_to - 1
+                        break
+                else:
+                    self.index = max(0, self.index - p.retreat_steps)
             else:
                 self.index = max(0, self.index - p.retreat_steps)
             return
@@ -139,11 +153,15 @@ class Oracle:
         if not self._entry_met():
             self._pending = []
             return Action(bets=[])
+        bet_types = self._select_bets()
+        if not bet_types:
+            self._pending = []
+            return Action(bets=[])
         stake = self.progression.stake()
         max_bet = self.spec.bankroll.max_bet_units
         if max_bet is not None:
             stake = min(stake, max_bet)
-        self._pending = [PlacedBet(bet_type=b.bet_type, stake_units=stake) for b in self.spec.bets]
+        self._pending = [PlacedBet(bet_type=bt, stake_units=stake) for bt in bet_types]
         return Action(bets=list(self._pending))
 
     def observe(self, outcome: Any) -> float:
@@ -159,6 +177,27 @@ class Oracle:
         return net
 
     # -- internals -------------------------------------------------------------
+
+    def _select_bets(self) -> list[str]:
+        """Resolve which bet types to place this round; [] = sit out."""
+        selection = self.spec.bet_selection
+        if not isinstance(selection, FollowLagSelection):
+            return [b.bet_type for b in self.spec.bets]
+        attr = selection.attribute
+        values = []
+        for o in reversed(self.outcomes):
+            v = getattr(o, attr, None)
+            if v is None and selection.skip_non_qualifying:
+                continue
+            values.append(v)
+            if len(values) >= selection.lag:
+                break
+        if len(values) < selection.lag or values[-1] is None:
+            return []  # not enough qualifying history yet
+        value = values[-1]
+        bet_type = f"{attr}_{value}" if attr in ("dozen", "column") else str(value)
+        allowed = {b.bet_type for b in self.spec.bets}
+        return [bet_type] if bet_type in allowed else []
 
     def _entry_met(self) -> bool:
         conditions = self.spec.entry_conditions
@@ -176,6 +215,10 @@ class Oracle:
 
     def _stop_reason(self) -> str | None:
         bk = self.spec.bankroll
+        if self.progression.busted:
+            return f"progression series lost ({self.net_units:+.1f} units)"
+        if bk.max_rounds is not None and self.rounds_played >= bk.max_rounds:
+            return f"max rounds reached ({bk.max_rounds})"
         if bk.stop_loss_units is not None and self.net_units <= -bk.stop_loss_units:
             return f"stop-loss hit ({self.net_units:+.1f} units)"
         if bk.stop_win_units is not None and self.net_units >= bk.stop_win_units:
@@ -195,6 +238,10 @@ def _validate_compilable(spec: StrategySpec) -> None:
     if spec.progression.kind == "custom":
         problems.append(
             f"custom progression needs human translation: {spec.progression.description}"
+        )
+    if spec.bet_selection.kind == "custom":
+        problems.append(
+            f"custom bet selection needs human translation: {spec.bet_selection.description}"
         )
     if not spec.bets:
         problems.append("spec has no bets")
