@@ -46,38 +46,77 @@ then human-reviewed and approved.
 
 ## H2 — Can an LLM agent *conform* to a strategy, decision after decision?
 
-**Partially — and it degrades sharply with bookkeeping complexity.** The
-conformance harness replays identical game states to the LLM agent and the
-deterministic oracle and measures the decision-match rate (target ≥ 99%).
+**On its own it degrades sharply with bookkeeping complexity — but feeding it
+verified state fixes most of the gap.** The conformance harness replays
+identical game states to the LLM agent and the deterministic oracle and measures
+the decision-match rate (target ≥ 99%). Baseline (`none`), 2 seeds × 30 rounds:
 
-| Strategy | deepseek-v4-flash | kimi-k2.6 | gpt-5-mini |
-|----------|-------------------|-----------|------------|
-| Formula 57 Blackjack | 93% | **100%** | 94% |
-| Power Pro Roulette | **95%** | — | 83% |
-| Power Baccarat | **77%** | — | 67% |
-| Super Fibonacci | **67%** | — | 47% |
-| Mini-Max Roulette | 42% | — | 42% |
+| Strategy | deepseek-v4-flash | gpt-5-mini | kimi-k2.6 |
+|----------|:---:|:---:|:---:|
+| Power Pro Roulette | 96% | 96% | — |
+| Formula 57 Blackjack | 91% | 86% | **100%** |
+| Power Baccarat | 79% | 81% | — |
+| Super Fibonacci | 72% | 55% | — |
+| Mini-Max Roulette | 59% | 36% | — |
 
 Findings:
-- **No model reached the 99% target on the hard specs.** Simple progressions
-  (Power Pro's ladder) are nearly solved; multi-mode state machines (Power
-  Baccarat's Strike/Counterstrike/Trend, Super Fibonacci's parlay+Martingale)
-  erode accuracy; the dual state machine (Mini-Max's chip stacks × IAB
-  selection) collapses both models to 42%.
+- **No model reached the 99% target on the hard specs unaided.** Simple
+  progressions (Power Pro's ladder) are nearly solved; multi-mode state machines
+  (Power Baccarat's Strike/Counterstrike/Trend, Super Fibonacci's
+  parlay+Martingale) erode accuracy; the dual state machine (Mini-Max's chip
+  stacks × IAB selection) drops both models to 36–59%.
 - **The divergences are real bookkeeping slips, not noise** — miscounting a
   Profit-Participation index, losing the Counterstrike level, dropping the
   chip-stack pointer. The agent understands the *rules*; it can't reliably hold
   the *state* over many rounds.
-- **Model comparison:** `deepseek-v4-flash` beat `gpt-5-mini` on 3 of 4 shared
-  specs and tied the fourth — while being faster and, on the flat-rate Ollama
-  Cloud plan, free (vs gpt-5-mini's ~$1.50 for the 5-spec sweep). `kimi-k2.6` is
-  the most accurate (100% where measured) but the slowest. This is why the
-  oracle — not the LLM — drives the backtests: it gives LLM-faithful decisions
-  at simulation speed and 100% conformance by construction.
+- **Model comparison:** `deepseek-v4-flash` matched or beat `gpt-5-mini` on 4 of
+  5 specs (notably +23pp on Mini-Max, +17pp on Super Fibonacci) — while being
+  faster and, on the flat-rate Ollama Cloud plan, free (vs gpt-5-mini's paid
+  sweep). `kimi-k2.6` is the most accurate (100% where measured) but the
+  slowest. Regardless, the oracle — not the LLM — drives the backtests: it gives
+  LLM-faithful decisions at simulation speed and 100% conformance by
+  construction.
 
-**Implication:** to run these strategies at scale you either use the
-deterministic oracle (what we do) or accept that today's LLMs will drift on
-complex systems. H2 is a caution, not a green light, for LLM-as-player.
+**Implication:** as a *pure* autonomous player (rules + history, no memory
+aids), today's LLMs drift on complex systems — a caution, not a green light.
+But that is the wrong way to deploy them; the fix below closes most of the gap.
+
+### The fix: facts-level bookkeeping fed back each round
+
+Because the failures were state-carry (not comprehension), we added a **Session
+Ledger**: after each outcome the deterministic bookkeeper computes the exact
+current state (mode, level indices, counters, chip stacks, selection directive)
+and feeds it to the agent as an authoritative CURRENT STATE block — but never
+the resolved stake or bet, so the agent still applies the rules. Re-running the
+matrix `none` vs `+facts` (both models, 2 seeds, 30 rounds):
+
+| Strategy | deepseek none→+facts | gpt-5-mini none→+facts |
+|----------|:---:|:---:|
+| Mini-Max Roulette | 59% → **91%** (+32) | 36% → **73%** (+36) |
+| Super Fibonacci | 72% → **87%** (+15) | 55% → **80%** (+25) |
+| Power Baccarat | 79% → **95%** (+16) | 81% → **95%** (+14) |
+| Formula 57 Blackjack | 91% → **98%** (+7) | 86% → **98%** (+11) |
+| Power Pro Roulette | 96% → **98%** (+2) | 96% → 96% (+0) |
+| **Pooled** | | **77.1% → 91.4% (+14.3pp)** |
+
+The gains land exactly where they were needed — the complex multi-mode state
+machines — with several cells reaching Kimi's 100%-class ceiling; the
+already-easy specs are neutral. (Two first-pass regressions were representation
+bugs in the ledger — an ambiguous "N-back" list and a state that looked
+pre-transition — both fixed, after which no strategy regresses.) The lesson:
+**an LLM plus verified external memory conforms far better than an LLM alone** —
+the realistic deployment model — and the remaining errors are genuine rule-
+application slips (e.g. a Profit-Participation stake formula), not lost state.
+
+**Realized outcomes corroborate H3a.** The harness also records each session's
+realized P/L. The oracle's is the strategy played correctly; the agent's own
+realized EV **converges to it as conformance rises** — e.g. Power Baccarat
+(deepseek) agent EV +21% vs oracle +11% at 79% match, tightening to +12% vs
++11% at 95% match with facts. A diverging model literally bleeds EV away from
+the strategy. (These are 30-round samples — far too short to show the house
+edge, which is why the 2,000-session oracle backtest below remains the robust
+H3a; but they confirm that *aligned* model play reproduces the strategy's
+outcome.)
 
 ## H3a — Monte Carlo backtest: how do the systems actually perform?
 
