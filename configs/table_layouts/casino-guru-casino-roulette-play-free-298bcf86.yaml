@@ -41,19 +41,28 @@ points:
     confirmed: true
     selector: ''
     frame_url: ''
-  first_bet:
-    x: 576.0
-    y: 487.0
-    note: first_bet
+  spin:
+    x: 1190.0
+    y: 685.0
+    note: spin
     source: manual
     confidence: 1.0
     confirmed: true
     selector: ''
     frame_url: ''
-  spin:
-    x: 1190
-    y: 685
-    note: spin
+  first_bet_red:
+    x: 576.0
+    y: 487.0
+    note: RED diamond
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  first_bet_black:
+    x: 744.0
+    y: 487.0
+    note: BLACK diamond
     source: manual
     confidence: 1.0
     confirmed: true
@@ -64,12 +73,13 @@ startup:
 - settings
 - turbo
 - close_settings
-- first_bet
+- first_bet_red
+- first_bet_black
 advance:
 - spin
 click_pause_ms: 700
 settle_ms: 7000
 startup_pause_ms: 2500
-calibrated_at: '2026-07-23T21:23:06+00:00'
+calibrated_at: '2026-07-23T22:54:50+00:00'
 vision_model: ''
 stale: false

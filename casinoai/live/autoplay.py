@@ -261,11 +261,18 @@ class AutoPlayDriver:
     def run_startup(self) -> None:
         """Click the one-off startup sequence, following the game into its new tab
         and waiting for it to load. Waits longer between these clicks than between
-        round clicks — dialogs and settings panels animate in."""
+        round clicks — dialogs and settings panels animate in.
+
+        Crucially, when a click opens the game in a new tab we wait for that tab to
+        finish loading BEFORE the next click. These WebGL tables take 30s+, and
+        firing the menu/turbo/first-bet clicks into a still-loading table silently
+        does nothing — the table ends up with no bet placed and never spins."""
         for pt in resolve_startup(self._layout):
+            before = self._page
             self.click(pt)
             self._page.wait_for_timeout(self._layout.startup_pause_ms)
-            self.follow_new_tab()
+            if self.follow_new_tab() is not before:
+                self.wait_until_loaded()
         self.wait_until_loaded()
 
     def advance(self) -> None:

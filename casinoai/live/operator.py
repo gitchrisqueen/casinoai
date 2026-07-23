@@ -591,7 +591,10 @@ def run_autoplay(
         base.attach(url)
         has_startup = bool(resolve_startup(layout))
         print(PREFLIGHT_CALIBRATED if has_startup else PREFLIGHT_MANUAL)
-        input(f"Press ENTER to start AUTO-PLAY ({sessions} session(s))... ")
+        # With a calibrated startup and free mode already confirmed there is
+        # nothing left to do by hand, so don't block a scripted/unattended run.
+        if not (assume_yes and has_startup):
+            input(f"Press ENTER to start AUTO-PLAY ({sessions} session(s))... ")
         driver = AutoPlayDriver(page, layout)  # validates the layout is playable
         if has_startup:
             print("Running the calibrated startup sequence (free-play, turbo) ...")
@@ -665,6 +668,11 @@ def main(argv: list[str] | None = None) -> int:
         "--list-layouts", action="store_true", help="List calibrated tables and their status"
     )
     ap.add_argument(
+        "--clear-stale",
+        action="store_true",
+        help="Clear this table's STALE flag (use when the fault was elsewhere), then exit",
+    )
+    ap.add_argument(
         "--i-am-in-free-mode",
         action="store_true",
         help="Confirm FREE/DEMO mode non-interactively (autoplay)",
@@ -696,6 +704,16 @@ def main(argv: list[str] | None = None) -> int:
 
         print(render_registry())
         return 0
+
+    if args.clear_stale:
+        if not args.url:
+            print("--clear-stale needs --url", file=sys.stderr)
+            return 1
+        from casinoai.live.layouts import mark_stale
+
+        path = mark_stale(args.url, stale=False)
+        print(f"cleared STALE -> {path}" if path else "no stored layout for that URL")
+        return 0 if path else 1
 
     if args.mode == "capture":
         if not args.url:

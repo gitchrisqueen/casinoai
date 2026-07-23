@@ -106,3 +106,26 @@ def test_find_control_rejects_ambiguous_matches():
         hit = find_control(page, "deal")
         browser.close()
     assert hit is None
+
+
+def test_playzido_roulette_result_is_parsed():
+    """casino.guru's 'Casino Roulette' is Playzido, not Softswiss/gpas: the spin
+    arrives as engine.gamestate.draw. Captured live — this is why auto-play read
+    zero rounds before."""
+    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+
+    body = (
+        '{"oga":{"game":{"name":"casinoroulette"}},"engine":{"gamestate":{"action":"spin",'
+        '"draw":{"colour":"Black","name":"35","numberIndex":34},'
+        '"playerBets":[{"betType":"red","stake":"1"},{"betType":"black","stake":"1"}],'
+        '"totalStake":2,"totalWinnings":2}}}'
+    )
+    assert extract_pockets_from_frame(body) == ["35"]
+
+
+def test_playzido_parser_ignores_a_bare_name_field():
+    """Keyed on the colour+numberIndex siblings, so an unrelated 'name' elsewhere
+    in the payload is never mistaken for a spin result."""
+    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+
+    assert extract_pockets_from_frame('{"game":{"name":"12","version":"4.8.1"}}') == []

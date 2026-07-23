@@ -144,6 +144,21 @@ _POCKET_RE = re.compile(r"00|0|[1-9]|[12][0-9]|3[0-6]")
 _GPAS_DELIM = "\xfd"
 
 
+def _playzido_pocket(node: dict) -> str | None:
+    """Playzido (casino.guru 'Casino Roulette') reports the spin as
+    engine.gamestate.draw = {"colour": "Black", "name": "35", "numberIndex": 34}.
+    Keyed on the colour+numberIndex siblings so a stray "name" elsewhere in the
+    payload can't be mistaken for a result."""
+    if not isinstance(node, dict):
+        return None
+    if "name" not in node or "numberIndex" not in node:
+        return None
+    if not any(k in node for k in ("colour", "color")):
+        return None
+    val = str(node.get("name", "")).strip()
+    return val if _POCKET_RE.fullmatch(val) else None
+
+
 def _gpas_pocket(s: str) -> str | None:
     if _GPAS_DELIM not in s:
         return None
@@ -165,7 +180,7 @@ def extract_pockets_from_frame(raw: str, parser: ResultParser = default_result_p
 
     def walk(node):
         if isinstance(node, dict):
-            pocket = parser(node)
+            pocket = _playzido_pocket(node) or parser(node)
             if pocket is not None:
                 found.append(pocket)
             for v in node.values():
