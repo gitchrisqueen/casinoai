@@ -15,6 +15,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from casinoai.engines.baccarat import BaccaratEngine, BaccaratOutcome
+from casinoai.engines.blackjack import BlackjackEngine
 from casinoai.engines.roulette import RouletteEngine, RouletteOutcome
 from casinoai.rules.library import PROGRESSIONS, SELECTIONS
 from casinoai.strategies.spec import (
@@ -63,6 +64,7 @@ def _outcome_matches(game: GameType, outcome: Any, token: str) -> bool:
 _SETTLERS = {
     GameType.ROULETTE: RouletteEngine.settle,
     GameType.BACCARAT: BaccaratEngine.settle,
+    GameType.BLACKJACK: BlackjackEngine.settle,
 }
 
 
