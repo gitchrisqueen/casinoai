@@ -23,11 +23,23 @@ def martingale(name, bet="red", factor=2.0, unit=1.0, stop_loss=63.0):
     )
 
 
-def test_same_system_different_name_and_unit_matches():
+def test_rebrand_same_board_matches():
+    """Renamed + rescaled but SAME board target (red) -> same identity."""
     a = martingale("Martingale", bet="red", unit=1.0)
-    b = martingale("The Double-Up System", bet="black", unit=10.0)  # renamed, $10, black
-    # red vs black are the same even-money class; unit size ignored
+    b = martingale("The Double-Up System", bet="red", unit=10.0)  # renamed, $10, still red
     assert core_fingerprint(a) == core_fingerprint(b)
+
+
+def test_different_board_position_is_a_different_strategy():
+    """red vs black vs dozen: distinct strategies (can diverge on a real wheel),
+    but they share a mechanic."""
+    from casinoai.strategies.identity import mechanic_fingerprint
+
+    red = martingale("M-red", bet="red")
+    black = martingale("M-black", bet="black")
+    assert core_fingerprint(red) != core_fingerprint(black)  # distinct strategies
+    assert mechanic_fingerprint(red) == mechanic_fingerprint(black)  # same mechanic
+    assert similarity(red, black) >= 0.85  # surfaced as near-duplicate
 
 
 def test_different_factor_is_a_different_system():
@@ -43,18 +55,27 @@ def test_stop_settings_split_full_but_not_core():
     assert full_fingerprint(a) != full_fingerprint(b)  # different exact config
 
 
-def test_registry_exact_same_system_and_new():
+def test_registry_exact_variant_position_and_new():
     reg = StrategyRegistry()
-    reg.register(martingale("Martingale", stop_loss=63.0), "book:martingale")
+    reg.register(martingale("Martingale", bet="red", stop_loss=63.0), "book:martingale")
 
-    exact = reg.check(martingale("Double-Up", bet="black", stop_loss=63.0))
+    # renamed, same board (red), same stops -> exact duplicate
+    exact = reg.check(martingale("Double-Up", bet="red", stop_loss=63.0))
     assert exact.status == "exact_duplicate"
     assert exact.matched_name == "Martingale"
 
-    variant = reg.check(martingale("Martingale XL", stop_loss=255.0))
+    # same board, different stop -> same_system variant
+    variant = reg.check(martingale("Martingale XL", bet="red", stop_loss=255.0))
     assert variant.status == "same_system"
 
-    fresh = reg.check(martingale("Triple Threat", factor=3.0))
+    # SAME mechanic on a DIFFERENT board (black) -> surfaced as near_duplicate,
+    # not dropped (may diverge on a real wheel)
+    other_board = reg.check(martingale("Martingale Black", bet="black", stop_loss=63.0))
+    assert other_board.status == "near_duplicate"
+    assert "board position" in other_board.reason
+
+    # genuinely different mechanic -> new
+    fresh = reg.check(martingale("Triple Threat", bet="red", factor=3.0))
     assert fresh.status == "new"
 
 
@@ -92,5 +113,7 @@ def test_registry_save_load(tmp_path):
     reg.register(martingale("Martingale"), "book:martingale")
     path = reg.save(tmp_path / "registry.json")
     reloaded = StrategyRegistry.load(path)
-    assert reg.check(martingale("Double-Up", bet="black")).status == "exact_duplicate"
-    assert reloaded.check(martingale("Double-Up", bet="black")).status == "exact_duplicate"
+    assert reg.check(martingale("Double-Up", bet="red")).status == "exact_duplicate"
+    # survives a save/load round-trip, including the mechanic fingerprint
+    assert reloaded.check(martingale("Double-Up", bet="red")).status == "exact_duplicate"
+    assert reloaded.check(martingale("M-black", bet="black")).status == "near_duplicate"

@@ -73,11 +73,17 @@ def _selection_shape(spec: StrategySpec) -> list:
     return [s.kind]
 
 
-def _core_features(spec: StrategySpec) -> dict:
-    classes = sorted({bet_class(spec.game, b.bet_type) for b in spec.bets})
+def _features(spec: StrategySpec, granular: bool) -> dict:
+    """Behavior features. granular=True keeps the SPECIFIC bet target (so red,
+    black, dozen_1 are distinct strategies — they can diverge on a real/biased
+    wheel); granular=False collapses to the payout CLASS (the shared mechanic)."""
+    if granular:
+        bets = sorted(b.bet_type for b in spec.bets)
+    else:
+        bets = sorted({bet_class(spec.game, b.bet_type) for b in spec.bets})
     return {
         "game": spec.game.value,
-        "bet_classes": classes,
+        "bets": bets,
         "selection": _selection_shape(spec),
         "progression": _progression_shape(spec),
     }
@@ -88,8 +94,16 @@ def _hash(obj) -> str:
 
 
 def core_fingerprint(spec: StrategySpec) -> str:
-    """Identity of the SYSTEM — ignores unit size, name, and bankroll stops."""
-    return _hash(_core_features(spec))
+    """Strategy identity, INCLUDING the specific board target — ignores unit
+    size, name, and bankroll stops. red vs black vs dozen_1 are distinct."""
+    return _hash(_features(spec, granular=True))
+
+
+def mechanic_fingerprint(spec: StrategySpec) -> str:
+    """The shared MECHANIC (payout-class level) — Martingale-on-even-money
+    regardless of red vs black. Used to surface 'same mechanic, different board
+    position' as a near-duplicate rather than collapsing it."""
+    return _hash(_features(spec, granular=False))
 
 
 def full_fingerprint(spec: StrategySpec) -> str:
@@ -102,14 +116,15 @@ def full_fingerprint(spec: StrategySpec) -> str:
         "max_rounds": bk.max_rounds,
         "session_bankroll_units": bk.session_bankroll_units,
     }
-    return _hash({"core": _core_features(spec), "stops": stops})
+    return _hash({"core": _features(spec, granular=True), "stops": stops})
 
 
 def similarity(a: StrategySpec, b: StrategySpec) -> float:
-    """Structural similarity in [0,1]. Different games are never similar."""
+    """Structural similarity in [0,1] at the MECHANIC (payout-class) level, so
+    same-mechanic-different-board-position scores high. Different games = 0."""
     if a.game != b.game:
         return 0.0
-    fa, fb = _core_features(a), _core_features(b)
+    fa, fb = _features(a, granular=False), _features(b, granular=False)
     score = 0.0
     # progression kind (0.35) + full progression shape (0.15)
     pa, pb = fa["progression"], fb["progression"]
@@ -121,7 +136,7 @@ def similarity(a: StrategySpec, b: StrategySpec) -> float:
     if fa["selection"] == fb["selection"]:
         score += 0.20
     # bet classes (0.15, Jaccard)
-    sa, sb = set(fa["bet_classes"]), set(fb["bet_classes"])
+    sa, sb = set(fa["bets"]), set(fb["bets"])
     if sa or sb:
         score += 0.15 * len(sa & sb) / len(sa | sb)
     # game already equal (0.15)
@@ -139,6 +154,7 @@ def load_approved_specs(approved_dir: Path = Path("strategies/approved")) -> lis
 
 class RegistryEntry(BaseModel):
     core_fingerprint: str
+    mechanic_fingerprint: str = ""
     full_fingerprints: list[str] = Field(default_factory=list)
     canonical_name: str
     game: str
@@ -183,6 +199,7 @@ class StrategyRegistry:
         `known_specs` are supplied to compute structural similarity, else new."""
         core = core_fingerprint(spec)
         full = full_fingerprint(spec)
+        mech = mechanic_fingerprint(spec)
         if core in self.entries:
             entry = self.entries[core]
             if full in entry.full_fingerprints:
@@ -190,14 +207,26 @@ class StrategyRegistry:
                     status="exact_duplicate",
                     core_fingerprint=core,
                     matched_name=entry.canonical_name,
-                    reason="identical mechanics and bankroll stops",
+                    reason="identical strategy (same board target, mechanics, and stops)",
                 )
             return MatchResult(
                 status="same_system",
                 core_fingerprint=core,
                 matched_name=entry.canonical_name,
-                reason="same system, different bankroll/stop settings",
+                reason="same strategy, different bankroll/stop settings",
             )
+        # same mechanic on a DIFFERENT board position (e.g. Martingale on black
+        # when we already have it on red): surfaced for review, never auto-dropped
+        for entry in self.entries.values():
+            if entry.mechanic_fingerprint and entry.mechanic_fingerprint == mech:
+                return MatchResult(
+                    status="near_duplicate",
+                    core_fingerprint=core,
+                    matched_name=entry.canonical_name,
+                    similarity=0.9,
+                    reason="same mechanic as an existing system on a different board "
+                    "position/target — may diverge on a real wheel; review",
+                )
         best_name, best_sim = None, 0.0
         for other in known_specs or []:
             if other.game != spec.game or core_fingerprint(other) == core:
@@ -222,7 +251,10 @@ class StrategyRegistry:
         entry = self.entries.get(core)
         if entry is None:
             entry = RegistryEntry(
-                core_fingerprint=core, canonical_name=spec.name, game=spec.game.value
+                core_fingerprint=core,
+                mechanic_fingerprint=mechanic_fingerprint(spec),
+                canonical_name=spec.name,
+                game=spec.game.value,
             )
             self.entries[core] = entry
         if full not in entry.full_fingerprints:
