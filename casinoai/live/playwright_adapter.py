@@ -79,6 +79,30 @@ def wire_ws_capture(page, on_frame, sent=False) -> None:
     page.context.on("page", hook)  # future tabs/popups (the real game window)
 
 
+def wire_result_capture(page, on_payload) -> None:
+    """Feed `on_payload(text)` with every WebSocket frame AND every HTTP JSON
+    response body, across `page` and any new tab. Providers deliver results over
+    WebSocket (Softswiss/gpas) OR plain HTTP (OneTouch), so we watch both."""
+
+    def hook(pg):
+        pg.on("websocket", lambda ws: ws.on("framereceived", on_payload))
+
+        def on_resp(resp):
+            try:
+                if resp.request.resource_type not in ("xhr", "fetch"):
+                    return
+                ctype = (resp.headers or {}).get("content-type", "")
+                if "json" in ctype or "text" in ctype:
+                    on_payload(resp.text())
+            except Exception:
+                pass
+
+        pg.on("response", on_resp)
+
+    hook(page)
+    page.context.on("page", hook)
+
+
 def default_result_parser(payload: dict) -> str | None:
     """Best-effort generic parser: many providers put the winning number under a
     key like 'result'/'winningNumber'/'number'. Operators should replace this
@@ -176,15 +200,31 @@ _BACC_WORDS = {
 
 
 def default_baccarat_parser(payload: dict) -> str | None:
-    """Best-effort baccarat winner parser: reads an explicit winner word from
-    common keys, else derives it from player/banker scores. Operators should
-    verify against captured traffic (use `capture` mode) and specialize if the
-    provider encodes the winner differently."""
-    for key in ("winner", "result", "outcome", "gameResult", "win", "side", "winningSide"):
+    """Best-effort baccarat winner parser across the formats seen in the wild:
+    OneTouch `betAreaOutcomes` (["PLAYER","BIG"] -> player), explicit winner
+    words, OneTouch player/dealer card hands (final handScore), and generic
+    player/banker scores. Verify against captured traffic for a new provider."""
+    # OneTouch (playmode.onetouch.io): betAreaOutcomes lists the winning areas,
+    # incl. the main outcome PLAYER / BANKER / TIE (plus side bets like BIG).
+    areas = payload.get("betAreaOutcomes")
+    if isinstance(areas, list):
+        up = {str(a).upper() for a in areas}
+        for word, winner in (("PLAYER", "player"), ("BANKER", "banker"), ("TIE", "tie")):
+            if word in up:
+                return winner
+    for key in ("winner", "result", "outcome", "gameResult", "side", "winningSide"):
         if key in payload:
             v = str(payload[key]).strip().lower()
             if v in _BACC_WORDS:
                 return _BACC_WORDS[v]
+    # OneTouch card hands: the last card's handScore is the final hand total.
+    pc, dc = payload.get("playerCards"), payload.get("dealerCards")
+    if isinstance(pc, list) and isinstance(dc, list) and pc and dc:
+        try:
+            ps, bs = int(pc[-1]["handScore"]), int(dc[-1]["handScore"])
+            return "player" if ps > bs else "banker" if bs > ps else "tie"
+        except (KeyError, ValueError, TypeError, IndexError):
+            pass
     ps = payload.get("playerScore", payload.get("player_score", payload.get("playerPoints")))
     bs = payload.get("bankerScore", payload.get("banker_score", payload.get("bankerPoints")))
     if ps is not None and bs is not None:
@@ -302,7 +342,7 @@ class PlaywrightRouletteReader:
         assert_demo_mode(game_url)
         self._is_demo = True
 
-        wire_ws_capture(self._page, self._on_frame)
+        wire_result_capture(self._page, self._on_frame)
         self._page.goto(game_url)
 
     def _on_frame(self, payload) -> None:
@@ -340,7 +380,7 @@ class PlaywrightBaccaratReader:
     def attach(self, game_url: str) -> None:
         assert_demo_mode(game_url)
         self._is_demo = True
-        wire_ws_capture(self._page, self._on_frame)
+        wire_result_capture(self._page, self._on_frame)
         self._page.goto(game_url)
 
     def _on_frame(self, payload) -> None:
@@ -376,7 +416,7 @@ class PlaywrightCrapsReader:
     def attach(self, game_url: str) -> None:
         assert_demo_mode(game_url)
         self._is_demo = True
-        wire_ws_capture(self._page, self._on_frame)
+        wire_result_capture(self._page, self._on_frame)
         self._page.goto(game_url)
 
     def _on_frame(self, payload) -> None:

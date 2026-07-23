@@ -504,3 +504,44 @@ def test_wire_ws_capture_follows_new_tabs():
     ws2.handlers["framereceived"]("frame-from-new-tab")
 
     assert got == ["frame-from-page", "frame-from-new-tab"]
+
+
+def test_onetouch_baccarat_result_parsing():
+    """Real OneTouch responses captured from casino.guru: the winner is in
+    `betAreaOutcomes` (PLAYER/BANKER/TIE + side bets), served over HTTP."""
+    from casinoai.live.playwright_adapter import (
+        default_baccarat_parser,
+        extract_winners_from_frame,
+    )
+
+    player_win = (
+        '{"gameId":"YIFsK9mQTO01a29d","state":"DEAL_DONE",'
+        '"playerCards":[{"card":"4c","handScore":"4"},{"card":"Ks","handScore":"4"}],'
+        '"dealerCards":[{"card":"Kd","handScore":"0"},{"card":"3s","handScore":"3"}],'
+        '"totalWin":1770.00,"betAreaOutcomes":["PLAYER","BIG"],"win":{"BIG":770,"PLAYER":1000}}'
+    )
+    banker_win = (
+        '{"gameId":"6zu1kThfNeRmOelk","state":"DEAL_DONE",'
+        '"playerCards":[{"card":"8d","handScore":"8"}],'
+        '"dealerCards":[{"card":"6s","handScore":"9"}],'
+        '"totalWin":0,"betAreaOutcomes":["BANKER","SMALL"],"win":{"LUCKY_SIX":0}}'
+    )
+    # a pre-deal state message carries no result
+    no_game = '{"gameId":"x","state":"NO_GAME","config":{"betLimit":{"min":1.0,"max":1000.0}}}'
+
+    assert extract_winners_from_frame(player_win) == ["player"]
+    assert extract_winners_from_frame(banker_win) == ["banker"]
+    assert extract_winners_from_frame(no_game) == []
+    # falls back to card handScores if betAreaOutcomes is ever absent
+    cards_only = (
+        '{"state":"DEAL_DONE",'
+        '"playerCards":[{"card":"9d","handScore":"9"}],'
+        '"dealerCards":[{"card":"7s","handScore":"7"}]}'
+    )
+    assert (
+        default_baccarat_parser(
+            {"playerCards": [{"handScore": "9"}], "dealerCards": [{"handScore": "7"}]}
+        )
+        == "player"
+    )
+    assert extract_winners_from_frame(cards_only) == ["player"]
