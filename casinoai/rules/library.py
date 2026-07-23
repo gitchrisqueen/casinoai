@@ -236,12 +236,163 @@ class IABSelection:
             self.consec_losses = 0
 
 
+class PowerBaccaratProgression:
+    """Power Baccarat (LaMarca 2015): three betting modes. Strike (default)
+    ladder 1,2,3,5,8,13,21,34 units — up one on loss, down one on win, reset to
+    L1 after two wins in a row or two of the last three strike bets. Two
+    consecutive strike losses enter Counterstrike (0.6,1,2,4,8,16,32 — pure
+    Martingale); any CS win resumes Strike one level above the last strike bet;
+    losing all seven CS bets loses the game. Winning a Level-1 strike bet
+    enters Trend (1.2, 1, 1.6, 2, 2.4, 2.8, 3.2, then +0.6 per win); any trend
+    loss resumes Strike at the lowest level whose stake strictly exceeds the
+    lost trend stake. Verified against the book's 14-round worked table (p.65).
+
+    Review decisions (draft-v1 ambiguities), 2026-07-22:
+    - Strike losses at the top (L8): no L9 exists; stay at L8 (the next loss is
+      the second consecutive and enters Counterstrike anyway).
+    - CS resume 'one level above the last strike bet' is capped at L8.
+    - The two-of-three strike-win window only counts strike-mode results and
+      clears on any mode change.
+    - Trend Level-1 entry takes precedence over the win-reset rule when a
+      Level-1 strike bet wins (the book states it as an unconditional signal).
+    """
+
+    STRIKE = [1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0]
+    COUNTER = [0.6, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
+    TREND = [1.2, 1.0, 1.6, 2.0, 2.4, 2.8, 3.2]
+
+    def __init__(self):
+        self.mode = "strike"
+        self.strike_index = 0
+        self.counter_index = 0
+        self.trend_index = 0
+        self.strike_window: list[bool] = []  # recent strike results, max 3
+        self.strike_consec_losses = 0
+        self.last_strike_index = 0
+        self.busted = False
+
+    def stake(self) -> float:
+        if self.mode == "strike":
+            return self.STRIKE[self.strike_index]
+        if self.mode == "counter":
+            return self.COUNTER[self.counter_index]
+        if self.trend_index < len(self.TREND):
+            return self.TREND[self.trend_index]
+        return self.TREND[-1] + 0.6 * (self.trend_index - len(self.TREND) + 1)
+
+    def _enter_strike(self, index: int) -> None:
+        self.mode = "strike"
+        self.strike_index = min(index, len(self.STRIKE) - 1)
+        self.strike_window = []
+        self.strike_consec_losses = 0
+
+    def advance(self, won: bool) -> None:
+        if self.mode == "strike":
+            self.last_strike_index = self.strike_index
+            self.strike_window = (self.strike_window + [won])[-3:]
+            if won:
+                self.strike_consec_losses = 0
+                if self.strike_index == 0:
+                    self.mode = "trend"
+                    self.trend_index = 0
+                    self.strike_window = []
+                elif sum(self.strike_window) >= 2:  # two in a row or two of three
+                    self.strike_index = 0
+                else:
+                    self.strike_index = max(0, self.strike_index - 1)
+            else:
+                self.strike_consec_losses += 1
+                if self.strike_consec_losses >= 2:
+                    self.mode = "counter"
+                    self.counter_index = 0
+                    self.strike_window = []
+                else:
+                    self.strike_index = min(self.strike_index + 1, len(self.STRIKE) - 1)
+            return
+        if self.mode == "counter":
+            if won:
+                self._enter_strike(self.last_strike_index + 1)
+            else:
+                self.counter_index += 1
+                if self.counter_index >= len(self.COUNTER):
+                    self.busted = True
+                    self.counter_index = len(self.COUNTER) - 1
+            return
+        # trend
+        if won:
+            self.trend_index += 1
+        else:
+            lost = self.stake()
+            resume = next((i for i, s in enumerate(self.STRIKE) if s > lost), len(self.STRIKE) - 1)
+            self._enter_strike(resume)
+
+
+class TrackerSelection:
+    """Power Baccarat's Target/Tracker selection: alternate S (bet the last
+    decision) and O (bet its opposite) every round regardless of results; after
+    two consecutive losing bets, repeat the last letter for exactly one bet,
+    then restart the alternation at S. Ties are not decisions: they push the
+    bet and change nothing.
+
+    Review decisions:
+    - After the one-bet repeat, the consecutive-loss count restarts (the book:
+      'win or lose your next bet will be on S'), so a lost repeat cannot
+      immediately trigger another repeat.
+    - No bet until one Player/Banker decision has been observed.
+    """
+
+    OPPOSITE = {"banker": "player", "player": "banker"}
+
+    def __init__(self):
+        self.last_decision: str | None = None
+        self.pos = 0  # index into the infinite S,O,S,O... alternation
+        self.repeating = False
+        self.last_letter = "S"
+        self.consec_losses = 0
+
+    def _letter(self) -> str:
+        if self.repeating:
+            return self.last_letter
+        return "S" if self.pos % 2 == 0 else "O"
+
+    def select(self) -> str | None:
+        if self.last_decision is None:
+            return None
+        letter = self._letter()
+        return self.last_decision if letter == "S" else self.OPPOSITE[self.last_decision]
+
+    def observe(self, outcome, won: bool | None) -> None:
+        winner = getattr(outcome, "winner", None)
+        winner = winner.value if winner is not None else None
+        played = self._letter() if won is not None else None
+        if winner in self.OPPOSITE:
+            self.last_decision = winner
+        if won is None:
+            return  # no bet, or a push (tie): nothing advances
+        if self.repeating:
+            self.repeating = False
+            self.pos = 0  # restart alternation at S
+            self.consec_losses = 0
+            return
+        self.last_letter = played
+        self.pos += 1
+        if won:
+            self.consec_losses = 0
+        else:
+            self.consec_losses += 1
+            if self.consec_losses >= 2:
+                self.repeating = True
+                self.consec_losses = 0
+
+
 PROGRESSIONS = {
     "super_fibonacci": SuperFibonacciProgression,
     "mini_max": MiniMaxProgression,
+    "power_baccarat": PowerBaccaratProgression,
 }
 
 SELECTIONS = {
     "power_pivot": PowerPivotSelection,
     "iab": IABSelection,
+    "tracker": TrackerSelection,
 }

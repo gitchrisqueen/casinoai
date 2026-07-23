@@ -1,0 +1,91 @@
+name: Power Baccarat
+version: 2
+game: baccarat
+also_applicable_to: []
+summary: "Player/Banker only (never Tie). Bet placement by Tracker/Target selection:\
+  \ alternate betting the Same as and the Opposite of the last decision every round;\
+  \ after two consecutive losing bets repeat the last pattern letter for one bet,\
+  \ then restart the alternation. Bet sizing by three modes: Strike ladder (1,2,3,5,8,13,21,34\
+  \ units; up on loss, down on win, reset to L1 on two straight wins or two of three),\
+  \ Counterstrike Martingale (0.6,1,2,4,8,16,32) after two consecutive Strike losses\
+  \ \u2014 a win resumes Strike one level above the last Strike bet, losing all seven\
+  \ loses the game \u2014 and Trend (1.2,1,1.6,2,2.4,2.8,3.2, then +0.6 per win) after\
+  \ a Level-1 Strike win, exiting on any loss to the lowest Strike level above the\
+  \ lost stake. Game targets +8 units."
+table_rules:
+  variant: 8-deck punto banco
+  min_bet: null
+  max_bet: null
+  notes:
+  - Banker wins pay 0.95:1 (5% commission); ties push Player/Banker bets.
+bets:
+- bet_type: player
+  description: null
+- bet_type: banker
+  description: null
+bet_selection:
+  kind: registered
+  name: tracker
+  description: S/O alternation with one-bet repeat after two consecutive losses
+entry_conditions: []
+progression:
+  kind: registered
+  name: power_baccarat
+  description: Strike / Counterstrike / Trend three-mode sizing
+bankroll:
+  unit_size: 5.0
+  session_bankroll_units: 87.0
+  stop_loss_units: 87.0
+  stop_win_units: 8.0
+  max_bet_units: 34.0
+  max_rounds: null
+state_tracked:
+- Last non-tie outcome (Player or Banker)
+- Current Tracker pattern (Same or Opposite)
+- Current betting mode (Strike, Counterstrike, or Trend)
+- Current level within the active mode's betting series
+- Consecutive loss count in the current mode (ignoring ties)
+- Last Strike bet level before entering Counterstrike (for return-level calculation)
+- Last Trend bet amount/level (for return-level calculation after a Trend loss)
+- Recent win/loss history over the last three Strike bets to evaluate the 'two wins
+  in a row or two out of three' reset condition
+assumptions:
+- The player must mentally track the last non-tie outcome to apply the S/O pattern;
+  ties are invisible to the pattern engine.
+- The 'two out of three wins' reset in Strike mode implies evaluating the most recent
+  three Strike bets; if two were wins, the next Strike bet drops to Level 1.
+- When returning from Counterstrike to Strike, the 'next higher level' refers to the
+  Strike level immediately above the last losing Strike bet that preceded Counterstrike
+  entry.
+- When returning from Trend to Strike after a loss, the Strike level chosen is the
+  one whose dollar value exceeds the lost Trend bet.
+- A winning Banker bet counts as a win for progression and pattern purposes even though
+  it nets less than even money after the 5% commission.
+- The system is designed exclusively for even-money baccarat wagers (Player or Banker);
+  Tie is never wagered.
+ambiguities: []
+source:
+  pdf_path: pdfs/Casino_Guides/PowerBaccarat-Book.pdf
+  sha256: bf72a876d777c5e6148016635ca8ab9035aad3f78c6cd4261076fec78d130ad0
+  parser: pymupdf4llm
+approval:
+  approved_by: claude (review delegated by chris, 2026-07-23)
+  approved_at: '2026-07-23T04:02:26.460008+00:00'
+  annotations:
+  - 'Draft v1 ambiguities resolved (machines in casinoai/rules/library.py, verified
+    against the book''s 14-round worked table pp.62-65 and Target Betting rules pp.48-50):'
+  - 'Strike losses at Level 8: no Level 9 exists; stay at L8 (the next loss is the
+    second consecutive and enters Counterstrike regardless).'
+  - Counterstrike resume level ('one above the last Strike bet') capped at Level 8.
+  - The two-of-three win-reset window counts Strike-mode results only and clears on
+    mode changes.
+  - A Level-1 Strike win always enters Trend mode (takes precedence over the win-reset
+    rule).
+  - 'Tracker repeat: after the one-bet repeat, the alternation restarts at S and the
+    loss count resets (''win or lose your next bet will be on S'').'
+  - 'Ties: Player/Banker bets push; ties are not decisions and advance nothing (book:
+    ignore ties entirely).'
+  - "Trend Level-1 stake is 1.2u ($6) \u2014 the book's printed series really does\
+    \ start 6,5,8: verified against both the table and the worked example."
+  - Game bankroll/loss limit 87u and target +8u per the book's money-management chapter
+    figures in the draft.
