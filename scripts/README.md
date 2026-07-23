@@ -27,6 +27,8 @@ Monte Carlo backtest and its promoter's claims.
 | Discover/verify how a demo game reports results (needed for `auto` mode) | `capture_ws.sh` | **Once per new demo table**, before using `auto` |
 | Run a session for **any** approved spec (not just the two focus ones), or use capture mode inline | `run_live_demo.sh` | Occasionally, for arbitrary strategies |
 | **Hands-free** play of a FREE/DEMO table to collect sessions fast | `autoplay.sh` | After a one-time per-table calibration |
+| Collect **N sessions** for one strategy in one browser | `collect_sessions.sh` | The H3b dataset, one game at a time |
+| Collect the **whole H3b dataset** (both strategies) end to end | `collect_all.sh` | The one-command data run |
 
 **Rule of thumb:** `setup_live.sh` once → `run_live_session.sh` for every session.
 Add `capture_ws.sh` once per table only if you want the hands-off `auto` mode.
@@ -135,6 +137,36 @@ positions can't be auto-detected, so each table is **calibrated once**:
 An uncalibrated layout **refuses to run** (no blind clicking). See
 [configs/table_layouts/README.md](../configs/table_layouts/README.md) for the
 control names, `settle_ms` tuning, and details.
+
+## collect_sessions.sh / collect_all.sh — the H3b data run
+
+Runs N sessions back-to-back for a strategy in **one browser** with **one setup
+pause**, so you configure the game (turbo on, animations off) once — not once per
+session. Each session gets a fresh oracle and is saved separately, then a batch
+rollup prints and tracking refreshes.
+
+```bash
+# one game (default: 10 sessions, default demo URL, chips 1,5,25,100,500)
+./scripts/collect_sessions.sh baccarat
+./scripts/collect_sessions.sh roulette 10
+
+# both strategies end to end
+./scripts/collect_all.sh 10
+```
+
+Both refuse to start if the table isn't calibrated. Override the table limits with
+`TABLE_MIN=`/`TABLE_MAX=` env vars if your table differs from min 1 / max 1000.
+
+**Setup pause:** before any clicking you get a checklist and an ENTER prompt —
+reach the betting table, confirm FREE/DEMO, **turn on turbo / turn off animations**,
+and place one bet so 'repeat' has something to repeat. Nothing is clicked until you
+press ENTER. With turbo on, shorten the post-deal wait:
+
+```bash
+uv run python -m casinoai.live.operator strategies/approved/power-baccarat-v2.yaml \
+  --url "<url>" --mode autoplay --layout configs/table_layouts/power-baccarat.yaml \
+  --sessions 10 --settle-ms 1500
+```
 
 ---
 

@@ -331,6 +331,18 @@ def run_calibrate(spec_path: str, url: str, layout_path: str, headed: bool = Tru
         browser.close()
 
 
+PREFLIGHT = """
+Before auto-play starts, set the table up ONCE (it runs unattended after this):
+  1. Click 'Play for free' / dismiss any dialogs and reach the BETTING TABLE.
+  2. CONFIRM the table shows FREE / DEMO / FUN play money — not real balance.
+  3. In the game's settings, turn ON 'Turbo'/'Fast play' and turn OFF animations
+     if the game offers them — auto-play goes much faster, and you can lower
+     --settle-ms afterwards.
+  4. Place one bet manually so the game's 'repeat bet' has something to repeat.
+Take as long as you need — nothing is clicked until you press ENTER.
+"""
+
+
 def run_autoplay(
     spec_path: str,
     url: str,
@@ -338,10 +350,16 @@ def run_autoplay(
     limits: SessionLimits,
     headed: bool = True,
     assume_yes: bool = False,
+    sessions: int = 1,
+    settle_ms: int | None = None,
 ):
     """Hands-free demo play: drive the calibrated table to advance each round and
     read real outcomes off the wire. FREE/DEMO only, gated by a free-mode
-    confirmation; measured P&L is the oracle applied to the real outcomes."""
+    confirmation; measured P&L is the oracle applied to the real outcomes.
+
+    With `sessions > 1` this runs N sessions back-to-back in ONE browser after a
+    SINGLE setup pause — so turbo/animation settings are made once, not per
+    session. Each session gets a fresh oracle and is saved separately."""
     from casinoai.live.autoplay import AdvancingReader, AutoPlayDriver, SilentPlacer, load_layout
 
     if not _confirm_free_mode(assume_yes):
@@ -352,22 +370,46 @@ def run_autoplay(
     assert_demo_mode(url)
     spec = load_spec(spec_path)
     layout = load_layout(layout_path)  # raises early if the file is missing
+    if settle_ms is not None:  # turbo on? shorten the post-deal wait
+        layout.settle_ms = settle_ms
+    saved: list = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not headed)
         page = browser.new_page()
         base = _auto_reader_for(spec, page)
         base.attach(url)
-        input(
-            "\nGet the demo to the BETTING TABLE (Play for free, place one bet so "
-            "'repeat' works), then press ENTER to start AUTO-PLAY..."
-        )
+        print(PREFLIGHT)
+        input(f"Press ENTER to start AUTO-PLAY ({sessions} session(s))... ")
         driver = AutoPlayDriver(page, layout)  # validates the layout is playable
         reader = AdvancingReader(base, driver)
-        session = run_live_session(spec, reader, SilentPlacer(), limits, table_url=url)
+        for i in range(1, sessions + 1):
+            print(f"\n=== session {i}/{sessions} — {spec.name} ===")
+            session = run_live_session(spec, reader, SilentPlacer(), limits, table_url=url)
+            path = save_session(session)
+            _print_summary(session, path)
+            saved.append(session)
+            if session.stop_reason == "table unavailable":
+                print("Table stopped responding — ending the batch early.")
+                break
         browser.close()
-    path = save_session(session)
-    _print_summary(session, path)
+    if sessions > 1:
+        _print_batch_summary(saved)
     return 0
+
+
+def _print_batch_summary(sessions: list) -> None:
+    if not sessions:
+        return
+    nets = [s.net_units for s in sessions]
+    rounds = sum(len(s.rounds) for s in sessions)
+    wins = sum(1 for n in nets if n > 0)
+    print("\n" + "=" * 52)
+    print(f"BATCH: {len(sessions)} sessions, {rounds} rounds total")
+    print(f"  winning sessions: {wins}/{len(sessions)}")
+    print(f"  net per session:  {', '.join(f'{n:+.1f}' for n in nets)}")
+    print(f"  total net:        {sum(nets):+.1f}u   mean: {sum(nets) / len(nets):+.2f}u")
+    print("=" * 52)
+    print("Run `uv run casinoai track` for claimed vs. simulated vs. live.")
 
 
 def _print_summary(session, path):
@@ -396,6 +438,18 @@ def main(argv: list[str] | None = None) -> int:
         "--i-am-in-free-mode",
         action="store_true",
         help="Confirm FREE/DEMO mode non-interactively (autoplay)",
+    )
+    ap.add_argument(
+        "--sessions",
+        type=int,
+        default=1,
+        help="autoplay: run N sessions back-to-back in one browser (one setup pause)",
+    )
+    ap.add_argument(
+        "--settle-ms",
+        type=int,
+        default=None,
+        help="autoplay: override the layout's post-deal wait (lower it with turbo on)",
     )
     args = ap.parse_args(argv)
 
@@ -445,6 +499,8 @@ def main(argv: list[str] | None = None) -> int:
             limits,
             headed=headed,
             assume_yes=args.i_am_in_free_mode,
+            sessions=args.sessions,
+            settle_ms=args.settle_ms,
         )
     if args.mode == "auto":
         if not args.url:

@@ -8,8 +8,11 @@
 # One-time per table you must CALIBRATE the click positions (canvas games can't be
 # auto-detected). Calibrate, then play:
 #
-#   ./scripts/autoplay.sh <baccarat|roulette> <demo-url> calibrate
-#   ./scripts/autoplay.sh <baccarat|roulette> <demo-url> play [chips]
+#   ./scripts/autoplay.sh <baccarat|roulette> [demo-url] calibrate
+#   ./scripts/autoplay.sh <baccarat|roulette> [demo-url] play [chips]
+#
+# The demo-url defaults to the casino.guru free table for that game, so
+# `./scripts/autoplay.sh baccarat "" calibrate` works with no URL.
 #
 # `play` first verifies the strategy's stakes fit the table (min/max/chips), then
 # confirms FREE mode, then runs. Layouts live in configs/table_layouts/.
@@ -22,12 +25,18 @@ ACTION="${3:-play}"
 CHIPS="${4:-${CHIPS:-}}"
 
 case "$GAME" in
-  baccarat) SPEC="strategies/approved/power-baccarat-v2.yaml"; LAYOUT="configs/table_layouts/power-baccarat.yaml" ;;
-  roulette) SPEC="strategies/approved/power-pro-roulette-v2.yaml"; LAYOUT="configs/table_layouts/power-pro-roulette.yaml" ;;
-  *) echo "usage: $0 <baccarat|roulette> <demo-url> [calibrate|play] [chips]"; exit 1 ;;
+  baccarat)
+    SPEC="strategies/approved/power-baccarat-v2.yaml"
+    LAYOUT="configs/table_layouts/power-baccarat.yaml"
+    DEFAULT_URL="https://casino.guru/no-commission-baccarat-play-free" ;;
+  roulette)
+    SPEC="strategies/approved/power-pro-roulette-v2.yaml"
+    LAYOUT="configs/table_layouts/power-pro-roulette.yaml"
+    DEFAULT_URL="https://casino.guru/casino-roulette-play-free" ;;
+  *) echo "usage: $0 <baccarat|roulette> [demo-url] [calibrate|play] [chips]"; exit 1 ;;
 esac
 
-if [ -z "$URL" ]; then echo "need a demo URL"; exit 1; fi
+URL="${URL:-$DEFAULT_URL}"
 
 if [ "$ACTION" = "calibrate" ]; then
   uv run python -m casinoai.live.operator "$SPEC" --url "$URL" --calibrate --layout "$LAYOUT"

@@ -100,6 +100,23 @@ def test_advancing_reader_advances_once_then_reads():
     assert calls == ["advance", "read"]
 
 
+def test_batch_summary_reports_every_session(capsys):
+    """The N-session batch rollup is what we read after a collection run."""
+    from casinoai.live.operator import _print_batch_summary
+
+    class S:
+        def __init__(self, net, n):
+            self.net_units = net
+            self.rounds = [None] * n
+
+    _print_batch_summary([S(+3.0, 20), S(-5.5, 18), S(+1.25, 22)])
+    out = capsys.readouterr().out
+    assert "3 sessions, 60 rounds" in out
+    assert "winning sessions: 2/3" in out
+    assert "-1.2u" in out  # total net +3 -5.5 +1.25 = -1.25
+    assert "settle" not in out
+
+
 def test_silent_placer_records_intended_bet():
     from types import SimpleNamespace
 
