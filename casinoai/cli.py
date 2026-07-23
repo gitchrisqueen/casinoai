@@ -126,6 +126,41 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_live(args: argparse.Namespace) -> int:
+    from casinoai.live import SessionLimits
+    from casinoai.live.playwright_adapter import OperatorBetPlacer
+    from casinoai.live.reader import ManualTableReader
+    from casinoai.live.session import run_live_session, save_session
+    from casinoai.strategies import load_spec
+
+    spec = load_spec(Path(args.spec))
+    print(f"LIVE/DEMO observer session — {spec.name} v{spec.version} [{spec.game}]")
+    print("Demo/free-play only. You place each bet by hand on the demo table,")
+    print("then type the winning pocket here. Nothing is wagered automatically.\n")
+    if not args.i_am_playing_a_free_demo_table:
+        print("Refusing to start: pass --i-am-playing-a-free-demo-table to confirm the")
+        print("table is in demo/free-play mode and you (a human) are operating it.")
+        return 1
+    limits = SessionLimits(
+        max_bet_units=args.max_bet,
+        max_total_stake_units=args.max_bet * 2,
+        max_rounds=args.max_rounds,
+        stop_loss_units=args.stop_loss,
+    )
+    session = run_live_session(
+        spec,
+        ManualTableReader(),
+        OperatorBetPlacer(),
+        limits,
+        table_url=args.table_url,
+    )
+    path = save_session(session)
+    print(f"\nSession ended: {session.stop_reason}")
+    print(f"  rounds: {len(session.rounds)}  net: {session.net_units:+.1f}u")
+    print(f"  saved -> {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="casinoai",
@@ -165,6 +200,23 @@ def main(argv: list[str] | None = None) -> int:
 
     p_report = sub.add_parser("report", help="Cross-strategy leaderboard from backtest results")
     p_report.set_defaults(func=_cmd_report)
+
+    p_live = sub.add_parser(
+        "live", help="Human-operated demo/free-play session (H3b, observer mode)"
+    )
+    p_live.add_argument("spec", help="Path to an approved spec YAML")
+    p_live.add_argument("--table-url", default=None, help="URL of the demo table (recorded only)")
+    p_live.add_argument("--max-bet", type=float, default=8.0, help="Hard cap per bet (units)")
+    p_live.add_argument("--max-rounds", type=int, default=200, help="Hard session length cap")
+    p_live.add_argument(
+        "--stop-loss", type=float, default=40.0, help="Hard session loss cap (units)"
+    )
+    p_live.add_argument(
+        "--i-am-playing-a-free-demo-table",
+        action="store_true",
+        help="Required: confirms a human is operating a demo/free-play table",
+    )
+    p_live.set_defaults(func=_cmd_live)
 
     args = parser.parse_args(argv)
     if args.command is None:

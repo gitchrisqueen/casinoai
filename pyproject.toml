@@ -12,6 +12,10 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+[project.optional-dependencies]
+# Phase 6 live/demo adapter (assisted mode). Observer mode needs none of this.
+live = ["playwright>=1.44"]
+
 [project.scripts]
 casinoai = "casinoai.cli:main"
 

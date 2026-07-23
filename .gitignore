@@ -145,3 +145,5 @@ pdfs_structured_output/*
 # CasinoAI 2026
 .env_bak
 data/
+
+# live session recordings (gitignored with the rest of data/)
