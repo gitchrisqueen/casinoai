@@ -107,6 +107,69 @@ def extract_pockets_from_frame(raw: str, parser: ResultParser = default_result_p
     return found
 
 
+# --- baccarat --------------------------------------------------------------------
+
+_BACC_WORDS = {
+    "player": "player",
+    "p": "player",
+    "punto": "player",
+    "banker": "banker",
+    "b": "banker",
+    "banco": "banker",
+    "tie": "tie",
+    "t": "tie",
+    "egalite": "tie",
+    "draw": "tie",
+    "égalité": "tie",
+}
+
+
+def default_baccarat_parser(payload: dict) -> str | None:
+    """Best-effort baccarat winner parser: reads an explicit winner word from
+    common keys, else derives it from player/banker scores. Operators should
+    verify against captured traffic (use `capture` mode) and specialize if the
+    provider encodes the winner differently."""
+    for key in ("winner", "result", "outcome", "gameResult", "win", "side", "winningSide"):
+        if key in payload:
+            v = str(payload[key]).strip().lower()
+            if v in _BACC_WORDS:
+                return _BACC_WORDS[v]
+    ps = payload.get("playerScore", payload.get("player_score", payload.get("playerPoints")))
+    bs = payload.get("bankerScore", payload.get("banker_score", payload.get("bankerPoints")))
+    if ps is not None and bs is not None:
+        try:
+            ps, bs = int(ps), int(bs)
+        except (ValueError, TypeError):
+            return None
+        return "player" if ps > bs else "banker" if bs > ps else "tie"
+    return None
+
+
+def extract_winners_from_frame(
+    raw: str, parser: ResultParser = default_baccarat_parser
+) -> list[str]:
+    """Pure helper (unit-tested): pull any baccarat winners ('player'/'banker'/
+    'tie') out of one raw WebSocket frame. Same framing handling as roulette."""
+    data = _loads_framed(raw)
+    if data is None:
+        return []
+    found: list[str] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            w = parser(node)
+            if w is not None:
+                found.append(w)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(data)
+    return found
+
+
 class PlaywrightRouletteReader:
     """Reads roulette spin outcomes off the game's WebSocket frames.
 
@@ -151,6 +214,45 @@ class PlaywrightRouletteReader:
         while waited < self._timeout_s:
             if self._pending:
                 return RouletteOutcome.from_pocket(self._pending.pop(0))
+            self._page.wait_for_timeout(500)
+            waited += 0.5
+        return None
+
+
+class PlaywrightBaccaratReader:
+    """Reads baccarat coup winners off the game's WebSocket frames — the
+    baccarat twin of PlaywrightRouletteReader. Emits BaccaratOutcome so the
+    oracle can't tell live from sim."""
+
+    def __init__(
+        self, page, parser: ResultParser = default_baccarat_parser, timeout_s: float = 120.0
+    ):
+        self._page = page
+        self._parser = parser
+        self._timeout_s = timeout_s
+        self._pending: list[str] = []
+        self._is_demo = False
+
+    def attach(self, game_url: str) -> None:
+        assert_demo_mode(game_url)
+        self._is_demo = True
+        self._page.on("websocket", lambda ws: ws.on("framereceived", self._on_frame))
+        self._page.goto(game_url)
+
+    def _on_frame(self, payload) -> None:
+        self._pending.extend(extract_winners_from_frame(payload, self._parser))
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self):
+        from casinoai.engines.baccarat import BaccaratWinner
+        from casinoai.live.reader import _baccarat_outcome
+
+        waited = 0.0
+        while waited < self._timeout_s:
+            if self._pending:
+                return _baccarat_outcome(BaccaratWinner(self._pending.pop(0)))
             self._page.wait_for_timeout(500)
             waited += 0.5
         return None

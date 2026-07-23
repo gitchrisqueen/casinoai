@@ -345,3 +345,36 @@ def test_tracking_joins_claim_sim_and_live(tmp_path):
     assert t.claimed_win_rate == 0.9
     md = render_tracking([t])
     assert "Martingale Red" in md and "90% win" in md
+
+
+# -- baccarat auto (WebSocket) parsing -------------------------------------------
+
+
+def test_default_baccarat_parser():
+    from casinoai.live.playwright_adapter import default_baccarat_parser
+
+    assert default_baccarat_parser({"winner": "Player"}) == "player"
+    assert default_baccarat_parser({"result": "B"}) == "banker"
+    assert default_baccarat_parser({"outcome": "tie"}) == "tie"
+    # derive from scores
+    assert default_baccarat_parser({"playerScore": 8, "bankerScore": 5}) == "player"
+    assert default_baccarat_parser({"playerScore": 3, "bankerScore": 3}) == "tie"
+    assert default_baccarat_parser({"chat": "hi"}) is None
+
+
+def test_extract_winners_from_frame_handles_socketio():
+    from casinoai.live.playwright_adapter import extract_winners_from_frame
+
+    # nested + socket.io framing, mirroring the captured roulette format
+    frame = '3:::{"data":{"_type":"GameResult","winner":"banker"},"t":9}'
+    assert extract_winners_from_frame(frame) == ["banker"]
+    assert extract_winners_from_frame('[{"winningSide":"player"},{"chat":"x"}]') == ["player"]
+    assert extract_winners_from_frame("2::") == []  # heartbeat, no result
+
+
+def test_capture_hit_detection_covers_both_games():
+    from casinoai.live.operator import default_result_parser_hits
+
+    assert default_result_parser_hits('{"winningNumber":17}')  # roulette
+    assert default_result_parser_hits('3:::{"data":{"winner":"tie"}}')  # baccarat
+    assert not default_result_parser_hits("ping")

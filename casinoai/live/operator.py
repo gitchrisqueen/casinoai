@@ -27,7 +27,6 @@ from casinoai.live.guard import SessionLimits
 from casinoai.live.playwright_adapter import (
     OperatorBetPlacer,
     assert_demo_mode,
-    default_result_parser,
 )
 from casinoai.live.reader import ManualBaccaratReader, ManualTableReader
 from casinoai.live.session import run_live_session, save_session
@@ -106,7 +105,7 @@ def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path
             f.write(json.dumps(fr) + "\n")
     hits = [fr for fr in frames if default_result_parser_hits(fr["payload"])]
     print(f"Captured {len(frames)} frames -> {out_path}")
-    print(f"  {len(hits)} frame(s) look like they contain a roulette result:")
+    print(f"  {len(hits)} frame(s) look like they contain a game result:")
     for fr in hits[:5]:
         print(f"    {fr['ws_url'][:60]} : {fr['payload'][:160]}")
     if not hits:
@@ -118,22 +117,42 @@ def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path
 
 
 def default_result_parser_hits(payload: str) -> bool:
-    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+    """A frame looks like a result if EITHER a roulette pocket or a baccarat
+    winner can be pulled from it — so `capture` works for both games."""
+    from casinoai.live.playwright_adapter import (
+        extract_pockets_from_frame,
+        extract_winners_from_frame,
+    )
 
-    return bool(extract_pockets_from_frame(payload))
+    return bool(extract_pockets_from_frame(payload) or extract_winners_from_frame(payload))
+
+
+def _auto_reader_for(spec, page):
+    """WebSocket reader matching the strategy's game."""
+    from casinoai.live.playwright_adapter import (
+        PlaywrightBaccaratReader,
+        PlaywrightRouletteReader,
+    )
+
+    if spec.game == GameType.BACCARAT:
+        return PlaywrightBaccaratReader(page)
+    if spec.game == GameType.ROULETTE:
+        return PlaywrightRouletteReader(page)
+    raise SystemExit(
+        f"Auto live sessions support roulette and baccarat; {spec.game.value} not yet wired."
+    )
 
 
 def run_auto(spec_path: str, url: str, limits: SessionLimits, headed: bool = True):
     """Read outcomes off the WebSocket automatically and run the oracle loop."""
     sync_playwright = _require_playwright()
-    from casinoai.live.playwright_adapter import PlaywrightRouletteReader
 
     spec = load_spec(spec_path)
     assert_demo_mode(url)  # refuses non-demo up front
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not headed)
         page = browser.new_page()
-        reader = PlaywrightRouletteReader(page, parser=default_result_parser)
+        reader = _auto_reader_for(spec, page)
         reader.attach(url)
         session = run_live_session(spec, reader, OperatorBetPlacer(), limits, table_url=url)
         browser.close()
