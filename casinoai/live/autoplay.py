@@ -217,12 +217,56 @@ class AutoPlayDriver:
         )
         self._page.mouse.click(x, y)
 
+    @property
+    def page(self):
+        return self._page
+
+    def follow_new_tab(self):
+        """Aggregators launch the game in a SECOND tab (casino.guru opens
+        gameDetailIos?gameId=...). After startup, drive whichever page is newest,
+        or the clicks keep landing on the now-irrelevant landing page."""
+        try:
+            pages = [p for p in self._page.context.pages if not p.is_closed()]
+        except Exception:
+            return self._page
+        if pages and pages[-1] is not self._page:
+            self._page = pages[-1]
+            try:
+                self._page.bring_to_front()
+            except Exception:
+                pass
+        return self._page
+
+    def wait_until_loaded(self, timeout_ms: int = 120_000, poll_ms: int = 4000) -> bool:
+        """Block until the game stops visually changing. These WebGL tables take
+        30s+ to load; detecting controls too early finds only a spinner. Returns
+        True if it settled, False on timeout (an animating table never fully
+        settles, which is fine — the caller still proceeds)."""
+        import hashlib
+
+        prev, stable, waited = None, 0, 0
+        while waited < timeout_ms:
+            self._page.wait_for_timeout(poll_ms)
+            waited += poll_ms
+            try:
+                digest = hashlib.md5(self._page.screenshot()).hexdigest()
+            except Exception:
+                continue
+            stable = stable + 1 if digest == prev else 0
+            prev = digest
+            if stable >= 2:
+                return True
+        return False
+
     def run_startup(self) -> None:
-        """Click the one-off startup sequence. Waits longer between these than
-        between round clicks — dialogs and settings panels animate in."""
+        """Click the one-off startup sequence, following the game into its new tab
+        and waiting for it to load. Waits longer between these clicks than between
+        round clicks — dialogs and settings panels animate in."""
         for pt in resolve_startup(self._layout):
             self.click(pt)
             self._page.wait_for_timeout(self._layout.startup_pause_ms)
+            self.follow_new_tab()
+        self.wait_until_loaded()
 
     def advance(self) -> None:
         for pt in self._seq:

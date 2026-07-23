@@ -134,11 +134,28 @@ def controls_for_game(game: str, phase: str | None = None) -> list[ControlSpec]:
 
 
 class ProposedControl(BaseModel):
+    """A located control as a BOUNDING BOX, not a point.
+
+    Asking for a box and clicking its centre measurably beats asking for a centre
+    directly: on the real OneTouch baccarat table, points put 2 of 3 controls a
+    few pixels OUTSIDE their target (a consistent downward bias — and 4px below
+    the DEAL button is a dead click), while box centres put 3 of 3 inside."""
+
     name: str
     found: bool
-    x: float = 0.0
-    y: float = 0.0
+    x1: float = 0.0
+    y1: float = 0.0
+    x2: float = 0.0
+    y2: float = 0.0
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @property
+    def x(self) -> float:
+        return (self.x1 + self.x2) / 2
+
+    @property
+    def y(self) -> float:
+        return (self.y1 + self.y2) / 2
 
 
 class VisionProposal(BaseModel):
@@ -156,7 +173,8 @@ _SYSTEM = (
 def build_prompt(specs: list[ControlSpec], width: int, height: int) -> str:
     lines = [
         f"This screenshot is exactly {width} pixels wide and {height} pixels tall.",
-        "Locate the centre pixel of each control listed below.",
+        "For each control below, give its BOUNDING BOX: x1,y1 is the top-left "
+        "corner and x2,y2 the bottom-right corner, in image pixels.",
         "",
     ]
     for s in specs:
@@ -164,8 +182,9 @@ def build_prompt(specs: list[ControlSpec], width: int, height: int) -> str:
         lines.append(f"- {s.name}: {s.description}{opt}")
     lines += [
         "",
-        "Return one entry per control with found, x, y and a confidence in 0..1. "
-        f"x must be between 0 and {width}, y between 0 and {height}. "
+        "Return one entry per control with found, x1, y1, x2, y2 and a confidence "
+        f"in 0..1. Coordinates must satisfy 0 <= x1 < x2 <= {width} and "
+        f"0 <= y1 < y2 <= {height}. Box the control tightly. "
         "Set found=false (and confidence 0) for anything you cannot actually see.",
     ]
     return "\n".join(lines)
@@ -194,6 +213,9 @@ def propose_controls(
 
 
 def in_bounds(p: ProposedControl, width: int, height: int) -> bool:
+    """The box must be well-formed AND on-screen; its centre is what we click."""
+    if not (p.x2 > p.x1 and p.y2 > p.y1):
+        return False
     return 0 <= p.x <= width and 0 <= p.y <= height
 
 
@@ -244,7 +266,8 @@ def annotate(
     page, screenshot_png: bytes, layout: TableLayout, names: list[str], out_path: Path
 ) -> Path:
     """Draw the proposed points on the screenshot so the operator can confirm by
-    eye. Rendered with the browser we already have (no image library needed)."""
+    eye. Rendered in a SEPARATE throwaway page — never `page` itself, because
+    set_content() would replace the live game and kill the session."""
     import base64
 
     markers = []
@@ -270,6 +293,12 @@ def annotate(
         markers="".join(markers),
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    page.set_content(html)
-    page.screenshot(path=str(out_path))
+    # A throwaway page in the same context: the live game page must survive.
+    render = page.context.new_page()
+    try:
+        render.set_viewport_size({"width": layout.viewport_w, "height": layout.viewport_h})
+        render.set_content(html)
+        render.screenshot(path=str(out_path))
+    finally:
+        render.close()
     return out_path

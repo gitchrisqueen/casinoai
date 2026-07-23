@@ -94,8 +94,12 @@ def test_merge_proposal_keeps_human_confirmed_points():
     )
     proposal = VisionProposal(
         controls=[
-            ProposedControl(name="deal", found=True, x=999, y=999, confidence=0.9),
-            ProposedControl(name="chip_min", found=True, x=50, y=60, confidence=0.8),
+            ProposedControl(
+                name="deal", found=True, x1=990, y1=990, x2=1008, y2=1008, confidence=0.9
+            ),
+            ProposedControl(
+                name="chip_min", found=True, x1=40, y1=50, x2=60, y2=70, confidence=0.8
+            ),
         ]
     )
     written = merge_proposal(layout, proposal, "m")
@@ -109,8 +113,10 @@ def test_merge_proposal_rejects_not_found_and_out_of_bounds():
     layout = TableLayout(name="t", game="baccarat", viewport_w=800, viewport_h=400)
     proposal = VisionProposal(
         controls=[
-            ProposedControl(name="deal", found=False, x=10, y=10, confidence=0.9),
-            ProposedControl(name="chip_min", found=True, x=825, y=785, confidence=0.9),
+            ProposedControl(name="deal", found=False, x1=0, y1=0, x2=20, y2=20, confidence=0.9),
+            ProposedControl(
+                name="chip_min", found=True, x1=815, y1=775, x2=835, y2=795, confidence=0.9
+            ),
         ]
     )
     assert merge_proposal(layout, proposal, "m") == []
@@ -118,14 +124,21 @@ def test_merge_proposal_rejects_not_found_and_out_of_bounds():
 
 
 def test_in_bounds():
-    assert in_bounds(ProposedControl(name="a", found=True, x=0, y=0), 800, 400)
-    assert not in_bounds(ProposedControl(name="a", found=True, x=801, y=10), 800, 400)
+    assert in_bounds(ProposedControl(name="a", found=True, x1=0, y1=0, x2=20, y2=20), 800, 400)
+    assert not in_bounds(
+        ProposedControl(name="a", found=True, x1=795, y1=5, x2=815, y2=25), 800, 400
+    )
+    # degenerate box (x2 <= x1) is rejected outright
+    assert not in_bounds(
+        ProposedControl(name="a", found=True, x1=10, y1=10, x2=10, y2=20), 800, 400
+    )
 
 
 def test_prompt_states_dimensions_and_controls():
     specs = controls_for_game("baccarat", "advance")
     prompt = build_prompt(specs, 1280, 800)
     assert "1280 pixels wide" in prompt and "800 pixels tall" in prompt
+    assert "BOUNDING BOX" in prompt
     for s in specs:
         assert s.name in prompt
 

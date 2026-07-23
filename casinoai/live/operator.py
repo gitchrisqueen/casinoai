@@ -354,7 +354,22 @@ def _manual_points(layout, names, read_fn=input) -> None:
         )
 
 
-def _calibrate_phase(page, layout, phase: str, model: str, shots_dir: Path, read_fn=input) -> None:
+# Which startup controls exist on which screen. Asking for all of them on the
+# landing page can never work — the game's own settings/turbo don't exist yet.
+_LANDING_CONTROLS = ("play_for_free", "close_dialog")
+_GAME_CONTROLS = ("close_dialog", "settings", "turbo", "close_settings")
+
+
+def _calibrate_phase(
+    page,
+    layout,
+    phase: str,
+    model: str,
+    shots_dir: Path,
+    read_fn=input,
+    only: tuple = (),
+    keep: bool = False,
+) -> None:
     """DOM first, vision for the rest, manual for anything still missing.
 
     A DOM hit is deterministic and resize-proof, so it's auto-confirmed; only the
@@ -363,7 +378,9 @@ def _calibrate_phase(page, layout, phase: str, model: str, shots_dir: Path, read
     from casinoai.live.vision import annotate, controls_for_game, merge_proposal, propose_controls
 
     specs = controls_for_game(layout.game, phase)
-    print(f"\n[{phase}] locating: {', '.join(s.name for s in specs)}")
+    if only:
+        specs = [s for s in specs if s.name in only]
+    print(f"[{phase}] locating: {', '.join(s.name for s in specs)}")
 
     # 1) DOM pass — real elements, across every frame.
     dom_found: list[str] = []
@@ -416,7 +433,9 @@ def _calibrate_phase(page, layout, phase: str, model: str, shots_dir: Path, read
 
     order = [s.name for s in specs if s.name in layout.points]
     if phase == "startup":
-        layout.startup = order
+        # Staged calls each contribute part of the sequence, in screen order.
+        prior = layout.startup if keep else []
+        layout.startup = list(dict.fromkeys([*prior, *order]))
     else:
         layout.advance = order
 
@@ -442,7 +461,7 @@ def run_calibrate(
     Startup controls are located on the landing page, then replayed to reach the
     table, where the per-round controls are located. The operator only confirms
     the markers and fills in whatever the model couldn't see."""
-    from casinoai.live.autoplay import AutoPlayDriver, TableLayout, resolve_startup
+    from casinoai.live.autoplay import AutoPlayDriver, TableLayout
     from casinoai.live.layouts import DEFAULT_REGISTRY, find_layout, store_layout
     from casinoai.live.vision import DEFAULT_VISION_MODEL
 
@@ -462,15 +481,29 @@ def run_calibrate(
     try:
         page = browser.new_page(viewport={"width": layout.viewport_w, "height": layout.viewport_h})
         page.goto(url)
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(4000)
 
-        _calibrate_phase(page, layout, "startup", model, shots)
+        # Staged: a control can only be found on the screen it actually exists on.
+        # 'settings'/'turbo' live INSIDE the loaded game, not on the landing page,
+        # so we calibrate the landing screen, click through, wait for the game to
+        # load (30s+ for these WebGL tables), then calibrate the table screen.
+        driver = AutoPlayDriver(page, layout, validate_advance=False)
 
-        # Replay startup to reach the betting table, then calibrate the round loop.
-        if resolve_startup(layout):
-            print("\nReplaying the startup sequence to reach the betting table ...")
-            AutoPlayDriver(page, layout).run_startup()
+        print("\n--- screen 1: landing page ---")
+        _calibrate_phase(page, layout, "startup", model, shots, only=_LANDING_CONTROLS)
+
+        if any(n in layout.points for n in _LANDING_CONTROLS):
+            print("\nClicking through to the game (it opens in a new tab; this is slow) ...")
+            layout.startup = [n for n in _LANDING_CONTROLS if n in layout.points]
+            driver.run_startup()
+            page = driver.page  # the game tab
+            print(f"  now on: {page.url[:90]}")
+
+        print("\n--- screen 2: loaded game ---")
+        _calibrate_phase(page, layout, "startup", model, shots, only=_GAME_CONTROLS, keep=True)
+
         input("\nAt the BETTING TABLE? Place one bet so 'repeat' works, then press ENTER... ")
+        print("\n--- screen 3: betting table ---")
         _calibrate_phase(page, layout, "advance", model, shots)
 
         path = store_layout(layout, reg)
@@ -562,7 +595,8 @@ def run_autoplay(
         driver = AutoPlayDriver(page, layout)  # validates the layout is playable
         if has_startup:
             print("Running the calibrated startup sequence (free-play, turbo) ...")
-            driver.run_startup()
+            driver.run_startup()  # follows the game into its new tab + waits for load
+            print(f"  table ready: {driver.page.url[:90]}")
         reader = AdvancingReader(base, driver)
         for i in range(1, sessions + 1):
             print(f"\n=== session {i}/{sessions} — {spec.name} ===")
