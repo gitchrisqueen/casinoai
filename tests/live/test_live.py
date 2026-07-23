@@ -253,7 +253,7 @@ def test_manual_reader_drives_full_session():
         SessionLimits(max_bet_units=100, max_total_stake_units=100, stop_loss_units=1000),
         now="2026-07-23T00:00:00Z",
     )
-    assert [r.pocket for r in session.rounds] == ["2", "2", "1"]
+    assert [r.outcome for r in session.rounds] == ["2", "2", "1"]
     assert session.stop_reason == "table unavailable"
 
 
@@ -270,3 +270,78 @@ def test_cli_live_refuses_without_confirmation(tmp_path, capsys):
     rc = main(["live", str(spec_path)])
     assert rc == 1
     assert "Refusing to start" in capsys.readouterr().out
+
+
+# -- baccarat live sessions + tracking -------------------------------------------
+
+
+def test_baccarat_live_session_records_winners():
+    from casinoai.live.reader import RecordedBaccaratReader
+    from casinoai.rules.oracle import compile_spec  # noqa: F401
+    from tests.rules.test_power_baccarat import pb_spec
+
+    spec = pb_spec()
+    # player/banker/tie tape; ties push
+    reader = RecordedBaccaratReader(["banker", "player", "tie", "banker", "player"])
+    session = run_live_session(
+        spec,
+        reader,
+        NullBetPlacer(),
+        SessionLimits(
+            max_bet_units=100,
+            max_total_stake_units=100,
+            stop_loss_units=1000,
+            stop_win_units=1000,
+            max_rounds=100,
+        ),
+        now="2026-07-23T00:00:00Z",
+    )
+    # Tracker selection observes round 1 before betting, so that outcome is
+    # consumed but not a recorded bet round.
+    assert session.is_demo
+    assert len(session.rounds) >= 3
+    assert all(r.outcome in ("player", "banker", "tie") for r in session.rounds)
+
+
+def test_manual_baccarat_reader():
+    from casinoai.live.reader import ManualBaccaratReader
+
+    tape = iter(["b", "player", "t", "q"])
+    reader = ManualBaccaratReader(read_fn=lambda _p: next(tape))
+    assert reader.read_next_spin().winner.value == "banker"
+    assert reader.read_next_spin().winner.value == "player"
+    assert reader.read_next_spin().winner.value == "tie"
+    assert reader.read_next_spin() is None
+
+
+def test_tracking_joins_claim_sim_and_live(tmp_path):
+    from casinoai.backtest.runner import backtest
+    from casinoai.discovery.claims import ClaimedMetrics, StrategyClaim
+    from casinoai.live.session import save_session
+    from casinoai.live.tracker import build_tracking, render_tracking
+    from tests.rules.test_oracle import martingale_spec
+
+    spec = martingale_spec(bankroll={"stop_loss_units": 20, "stop_win_units": 10})
+    bt = backtest(spec, seeds=list(range(30)), max_rounds=500)
+    # one recorded live session
+    sess = run_live_session(
+        spec,
+        RecordedTableReader([str(p) for p in ([2] * 3 + [1] * 3) * 20]),
+        NullBetPlacer(),
+        SessionLimits(
+            max_bet_units=1000, max_total_stake_units=1000, stop_loss_units=20, stop_win_units=10
+        ),
+        now="2026-07-23T00:00:00Z",
+    )
+    save_session(sess, sessions_dir=tmp_path)
+    claim = StrategyClaim(
+        name="Martingale Red",
+        source_url="x",
+        claimed=ClaimedMetrics(win_rate=0.9, beats_house_edge=True),
+    )
+    t = build_tracking("Martingale Red", backtest=bt, claim=claim, sessions_dir=tmp_path)
+    assert t.live_sessions == 1
+    assert t.sim_ev_per_unit == bt.ev_per_unit_staked
+    assert t.claimed_win_rate == 0.9
+    md = render_tracking([t])
+    assert "Martingale Red" in md and "90% win" in md

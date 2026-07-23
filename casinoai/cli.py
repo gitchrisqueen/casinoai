@@ -206,6 +206,40 @@ def _cmd_registry(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_track(args: argparse.Namespace) -> int:
+    from casinoai.backtest.runner import BacktestSummary
+    from casinoai.discovery.claims import StrategyClaim
+    from casinoai.live.tracker import build_tracking, render_tracking
+    from casinoai.strategies import load_spec
+
+    spec_paths = args.specs or [
+        "strategies/approved/power-baccarat-v2.yaml",
+        "strategies/approved/power-pro-roulette-v2.yaml",
+    ]
+    rows = []
+    for sp in spec_paths:
+        spec = load_spec(Path(sp))
+        slug = spec.name.lower().replace(" ", "-")
+        bt_path = Path(f"data/results/backtest-{slug}-v{spec.version}.json")
+        backtest = (
+            BacktestSummary.model_validate_json(bt_path.read_text()) if bt_path.exists() else None
+        )
+        claim_path = Path(f"strategies/claims/{slug}.json")
+        claim = (
+            StrategyClaim.model_validate_json(claim_path.read_text())
+            if claim_path.exists()
+            else None
+        )
+        rows.append(build_tracking(spec.name, backtest=backtest, claim=claim))
+    md = render_tracking(rows)
+    print(md)
+    out = Path("data/results/tracking.md")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(md + "\n")
+    print(f"\nsaved -> {out}")
+    return 0
+
+
 def _cmd_claims(args: argparse.Namespace) -> int:
     from casinoai.discovery import load_claims, render_scoreboard
 
@@ -325,6 +359,12 @@ def main(argv: list[str] | None = None) -> int:
     p_reg.add_argument("--seed", action="store_true", help="Register all approved strategies")
     p_reg.add_argument("--check", default=None, help="Classify a spec YAML against the registry")
     p_reg.set_defaults(func=_cmd_registry)
+
+    p_track = sub.add_parser("track", help="Claimed vs. simulated vs. live tracking per strategy")
+    p_track.add_argument(
+        "--specs", nargs="*", default=None, help="Spec YAMLs (default: the two focus strategies)"
+    )
+    p_track.set_defaults(func=_cmd_track)
 
     p_live = sub.add_parser(
         "live", help="Human-operated demo/free-play session (H3b, observer mode)"

@@ -1,0 +1,19 @@
+{
+  "name": "Power Baccarat",
+  "game": "baccarat",
+  "source_url": "pdfs/Casino_Guides/PowerBaccarat-Book.pdf",
+  "source_title": "Power Baccarat (C. Frank LaMarca, 2015)",
+  "claimed": {
+    "win_rate": 0.9566,
+    "dollars_per_hour": null,
+    "dollars_per_day": null,
+    "beats_house_edge": true,
+    "guaranteed": false,
+    "claim_quotes": [
+      "overall win rate of 95.66% of all games played",
+      "win 90% of all games"
+    ]
+  },
+  "captured_at": "2026-07-23T15:53:54.621383+00:00",
+  "notes": []
+}

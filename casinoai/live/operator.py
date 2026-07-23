@@ -29,9 +29,22 @@ from casinoai.live.playwright_adapter import (
     assert_demo_mode,
     default_result_parser,
 )
-from casinoai.live.reader import ManualTableReader
+from casinoai.live.reader import ManualBaccaratReader, ManualTableReader
 from casinoai.live.session import run_live_session, save_session
 from casinoai.strategies import load_spec
+from casinoai.strategies.spec import GameType
+
+
+def _manual_reader_for(spec):
+    """Observer reader matching the strategy's game (human types outcomes)."""
+    if spec.game == GameType.BACCARAT:
+        return ManualBaccaratReader()
+    if spec.game == GameType.ROULETTE:
+        return ManualTableReader()
+    raise SystemExit(
+        f"Manual live sessions support roulette and baccarat; {spec.game.value} not yet wired."
+    )
+
 
 REAL_MONEY_SIGNALS = ("realmode=1", "mode=real", "play=real", "/real")
 
@@ -143,7 +156,7 @@ def run_manual(spec_path: str, url: str | None, limits: SessionLimits, headed: b
         page.goto(url)
     try:
         session = run_live_session(
-            spec, ManualTableReader(), OperatorBetPlacer(), limits, table_url=url
+            spec, _manual_reader_for(spec), OperatorBetPlacer(), limits, table_url=url
         )
     finally:
         if browser:

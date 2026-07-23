@@ -1,0 +1,20 @@
+{
+  "name": "Power Pro Roulette",
+  "game": "roulette",
+  "source_url": "pdfs/Casino_Guides/PowerProRoulette-book.pdf",
+  "source_title": "Fletcher's Power Pro Roulette (Silverthorne)",
+  "claimed": {
+    "win_rate": 1.0,
+    "dollars_per_hour": 824.0,
+    "dollars_per_day": 5000.0,
+    "beats_house_edge": true,
+    "guaranteed": false,
+    "claim_quotes": [
+      "$5,000 a day",
+      "$824 an hour",
+      "100% win"
+    ]
+  },
+  "captured_at": "2026-07-23T15:53:54.621407+00:00",
+  "notes": []
+}
