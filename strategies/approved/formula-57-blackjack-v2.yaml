@@ -1,0 +1,84 @@
+name: Formula 57 Blackjack
+version: 2
+game: blackjack
+also_applicable_to: []
+summary: "Bet sizing over basic-strategy blackjack in three modes. Foundation: six-level\
+  \ Fibonacci ladder (1, 1.6, 2.6, 4.2, 6.8, 11 units) \u2014 up one on a loss, down\
+  \ one on a win, series complete (reset to Level 1) on two straight wins or two of\
+  \ the last three. Rapid Recovery: 1,2,4,8,16 Martingale after three consecutive\
+  \ losing bets (pushes ignored); any win resumes Foundation one level above the last\
+  \ Foundation bet; losing all five loses the game. Profit Participation after a Level-1\
+  \ Foundation win: 1.4, then 1.2, then 1.6 + 0.4 per win; any loss resumes Foundation\
+  \ at Level 2. Game targets +10 units on a 40-unit bankroll."
+table_rules:
+  variant: 6-deck S17 DAS, BJ 3:2, no surrender
+  min_bet: null
+  max_bet: null
+  notes:
+  - Player plays full basic strategy at every level (see annotations).
+bets:
+- bet_type: hand
+  description: null
+bet_selection:
+  kind: fixed
+entry_conditions: []
+progression:
+  kind: registered
+  name: formula_57
+  description: Foundation / Rapid Recovery / Profit Participation three-mode sizing
+bankroll:
+  unit_size: 5.0
+  session_bankroll_units: 40.0
+  stop_loss_units: 40.0
+  stop_win_units: 10.0
+  max_bet_units: null
+  max_rounds: null
+state_tracked:
+- current betting mode (Foundation, Rapid Recovery, or Profit Participation)
+- current level within the active betting series
+- consecutive Foundation losses (ignoring pushes)
+- Profit Participation step index
+- session net win/loss relative to Target Win
+- remaining Game Bankroll
+- whether Basic or Restricted playing strategy is active
+assumptions:
+- Pushes (ties) are ignored when counting consecutive losses to trigger Rapid Recovery
+  mode.
+- "The player uses the Formula 57 Basic Strategy for lower bet levels and the Restricted\
+  \ Strategy for higher bet levels (Foundation Levels 5\u20136 and Rapid Recovery\
+  \ Levels 5\u20136)."
+- A 'game' is a short session averaging about 21 rounds, ending when the Target Win
+  is reached or the Game Bankroll is exhausted.
+- The Total Bankroll is recommended to be 4 times the Game Bankroll to absorb up to
+  four consecutive losing games.
+- Bet sizes scale proportionally with the chosen Base Bet; $5 is used as the canonical
+  example throughout the source.
+ambiguities: []
+source:
+  pdf_path: pdfs/Casino_Guides/Formula57Blackjack-book.pdf
+  sha256: 8b305f129373b4c775621533820299087c00edf730cb2ead0c254653b7935e4a
+  parser: pymupdf4llm
+approval:
+  approved_by: claude (review delegated by chris, 2026-07-23)
+  approved_at: '2026-07-23T04:13:45.845725+00:00'
+  annotations:
+  - 'Draft v1 ambiguities resolved (machine in casinoai/rules/library.py, verified
+    against the book''s Example 3 worked table pp.119-120):'
+  - "Optional 7th Foundation level ($89): excluded \u2014 the book itself never uses\
+    \ it in any example or game ('the original system was set up with seven bets,\
+    \ the 7 part of Formula 57')."
+  - 'Consecutive-loss count crosses modes (Example 3 rounds 3-5: PP loss + two Foundation
+    losses trigger Rapid Recovery).'
+  - 'RR resume level: one above the last Foundation bet, per Example 3 round 10 (F4
+    after losing F3).'
+  - 'Profit Participation stakes fixed from the book''s $5 schedule: 7, 6, 8, 10,
+    12... ($7/$5 = the ''5-7'' of Formula 57); the vague ''40-60%'' phrasing resolved
+    to the printed numbers.'
+  - Foundation completion window counts Foundation bets only and clears on mode changes.
+  - 'Restricted Strategy at Foundation L5-6 / RR L5 is NOT modeled: the engine always
+    plays full basic strategy, which has a LOWER house edge than the restricted variant,
+    so measured results are if anything charitable to the system.'
+  - Doubles and splits stake additional money beyond the progression stake, exactly
+    as at a real table; net results include them.
+  - "Blackjack engine rules: 6-deck, S17, DAS, split to two hands, BJ 3:2, no surrender\
+    \ \u2014 the common rule set the book assumes."

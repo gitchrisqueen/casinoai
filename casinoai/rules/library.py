@@ -385,10 +385,102 @@ class TrackerSelection:
                 self.consec_losses = 0
 
 
+class Formula57Progression:
+    """Formula 57 Blackjack (Silverthorne 2018): three modes. Foundation is a
+    six-level Fibonacci ladder (1, 1.6, 2.6, 4.2, 6.8, 11 units) — up one on a
+    loss, down one on a win, series complete (reset to L1) on two straight wins
+    or two of the last three. Rapid Recovery (1,2,4,8,16 Martingale) starts
+    after three consecutive losing bets (pushes ignored; the count crosses
+    modes); any RR win resumes Foundation one level above the last Foundation
+    bet. Winning a Level-1 Foundation bet enters Profit Participation:
+    1.4, then 1.2, then 1.6 + 0.4 per win ($5 base: 7, 6, 8, 10, 12...);
+    any PP loss resumes Foundation at Level 2. Verified against the book's
+    Example 3 (18 rounds, pp. 119-120).
+
+    Review decisions (draft-v1 ambiguities), 2026-07-23:
+    - The optional 7th Foundation level ($89) is not used, matching every
+      example and game in the book; Foundation losses at L6 stay at L6.
+    - Consecutive-loss counting crosses modes (Example 3 rounds 3-5: a PP loss
+      plus two Foundation losses trigger Rapid Recovery).
+    - RR exhaustion (five straight RR losses) busts the game.
+    - The two-of-three completion window counts Foundation bets only and
+      clears on any mode change.
+    - 'Restricted Strategy' at high levels is NOT modeled — the engine always
+      plays full basic strategy, which has a lower house edge, so results are
+      if anything charitable to the system.
+    """
+
+    F = [1.0, 1.6, 2.6, 4.2, 6.8, 11.0]
+    RR = [1.0, 2.0, 4.0, 8.0, 16.0]
+
+    def __init__(self):
+        self.mode = "f"  # f | rr | pp
+        self.f_index = 0
+        self.rr_index = 0
+        self.pp_index = 0
+        self.consec_losses = 0
+        self.f_window: list[bool] = []
+        self.last_f_index = 0
+        self.busted = False
+
+    def stake(self) -> float:
+        if self.mode == "f":
+            return self.F[self.f_index]
+        if self.mode == "rr":
+            return self.RR[self.rr_index]
+        if self.pp_index == 0:
+            return 1.4
+        if self.pp_index == 1:
+            return 1.2
+        return 1.6 + 0.4 * (self.pp_index - 2)
+
+    def _enter_f(self, index: int) -> None:
+        self.mode = "f"
+        self.f_index = min(index, len(self.F) - 1)
+        self.f_window = []
+
+    def advance(self, won: bool) -> None:
+        if won:
+            self.consec_losses = 0
+            if self.mode == "f":
+                self.f_window = (self.f_window + [True])[-3:]
+                if self.f_index == 0:
+                    self.mode = "pp"
+                    self.pp_index = 0
+                    self.f_window = []
+                elif sum(self.f_window) >= 2:  # two straight or two of three
+                    self.f_index = 0
+                    self.f_window = []
+                else:
+                    self.f_index -= 1
+            elif self.mode == "rr":
+                self._enter_f(self.last_f_index)
+            else:
+                self.pp_index += 1
+            return
+        self.consec_losses += 1
+        if self.mode == "f":
+            self.f_window = (self.f_window + [False])[-3:]
+            self.f_index = min(self.f_index + 1, len(self.F) - 1)
+            if self.consec_losses >= 3:
+                self.mode = "rr"
+                self.rr_index = 0
+                self.last_f_index = self.f_index  # already one above the lost bet
+                self.f_window = []
+        elif self.mode == "rr":
+            self.rr_index += 1
+            if self.rr_index >= len(self.RR):
+                self.busted = True
+                self.rr_index = len(self.RR) - 1
+        else:  # pp loss: resume Foundation at Level 2
+            self._enter_f(1)
+
+
 PROGRESSIONS = {
     "super_fibonacci": SuperFibonacciProgression,
     "mini_max": MiniMaxProgression,
     "power_baccarat": PowerBaccaratProgression,
+    "formula_57": Formula57Progression,
 }
 
 SELECTIONS = {
