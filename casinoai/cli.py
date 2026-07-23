@@ -82,6 +82,12 @@ def _cmd_conform(args: argparse.Namespace) -> int:
 
     spec = load_spec(Path(args.spec))
     report = run_conformance(spec, model=args.model, rounds=args.rounds, seed=args.seed)
+    results_dir = Path("data/results")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    slug = report.strategy.lower().replace(" ", "-")
+    model_slug = report.model.replace("/", "_").replace(":", "_")
+    out = results_dir / f"conformance-{slug}-v{report.spec_version}-{model_slug}.json"
+    out.write_text(report.model_dump_json(indent=2))
     print(f"Conformance: {report.strategy} v{report.spec_version} × {report.model}")
     print(f"  decisions: {report.decisions}  matches: {report.matches}")
     print(f"  match rate: {report.match_rate:.2%}  cost: ${report.total_cost_usd:.4f}")
