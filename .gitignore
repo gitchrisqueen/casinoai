@@ -141,3 +141,7 @@ cython_debug/
 #Pdf Files
 pdfs/*
 pdfs_structured_output/*
+
+# CasinoAI 2026
+.env_bak
+data/
