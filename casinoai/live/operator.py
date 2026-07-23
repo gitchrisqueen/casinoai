@@ -76,6 +76,52 @@ def _host(u: str) -> str:
     return m.group(1) if m else (u or "")[:40]
 
 
+def _detect_limits_from_capture(path: Path = Path("data/results/live/ws_capture.jsonl")):
+    """Best-effort (min, max) bet from a prior capture's provider config."""
+    if not path.exists():
+        return None
+    m = re.search(r'"betLimit":\s*\{\s*"min":\s*([\d.]+),\s*"max":\s*([\d.]+)', path.read_text())
+    return (float(m.group(1)), float(m.group(2))) if m else None
+
+
+def verify_table(
+    spec, chips=None, table_min=None, table_max=None, table_name="", read_fn=input
+) -> bool:
+    """Check the strategy's required stakes against the live table's chips/limits.
+    Prompts the operator for anything not passed as a flag (auto-filling from a
+    prior capture's betLimit). Returns True to proceed, False to abort."""
+    from casinoai.live.table import TableProfile, check_table, render_check
+
+    detected = _detect_limits_from_capture()
+    if chips is None:
+        raw = read_fn("Table chip denominations, comma-separated (e.g. 1,5,25,100,500): ")
+        chips = [float(x) for x in (raw or "").replace(" ", "").split(",") if x]
+    if not chips:
+        print("No chip denominations given — cannot verify table; aborting.", file=sys.stderr)
+        return False
+    if table_min is None:
+        d = f" [{detected[0]:g}]" if detected else ""
+        raw = (read_fn(f"Table minimum bet{d}: ") or "").strip()
+        table_min = float(raw) if raw else (detected[0] if detected else min(chips))
+    if table_max is None:
+        d = f" [{detected[1]:g}]" if detected else ""
+        raw = (read_fn(f"Table maximum bet{d}: ") or "").strip()
+        table_max = float(raw) if raw else (detected[1] if detected else 1e9)
+
+    profile = TableProfile(
+        name=_host(table_name) or "table",
+        min_bet=table_min,
+        max_bet=table_max,
+        chip_denominations=sorted(chips),
+    )
+    check = check_table(spec, profile)
+    print("\n" + render_check(spec, profile, check) + "\n")
+    if check.ok and not check.dynamic:
+        return True
+    ans = (read_fn("Proceed anyway? [y/N]: ") or "").strip().lower()
+    return ans in ("y", "yes")
+
+
 def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path:
     """Log the game's result traffic — WebSocket frames AND HTTP/JSON responses,
     across the page and any new tab — to discover the result message format.
@@ -254,6 +300,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-rounds", type=int, default=200)
     ap.add_argument("--stop-loss", type=float, default=40.0)
     ap.add_argument("--headless", action="store_true", help="Run browser without a window")
+    ap.add_argument("--chips", default=None, help="Table chip denominations, e.g. 1,5,25,100,500")
+    ap.add_argument("--table-min", type=float, default=None, help="Table minimum bet")
+    ap.add_argument("--table-max", type=float, default=None, help="Table maximum bet")
+    ap.add_argument("--skip-table-check", action="store_true", help="Skip stake/table verification")
     args = ap.parse_args(argv)
 
     limits = SessionLimits(
@@ -271,6 +321,14 @@ def main(argv: list[str] | None = None) -> int:
         out = Path("data/results/live/ws_capture.jsonl")
         capture(args.url, args.seconds, out, headed=headed)
         return 0
+    # Verify the strategy's stakes fit the table (chips/min/max) before playing.
+    if not args.skip_table_check:
+        chips = [float(x) for x in args.chips.split(",")] if args.chips else None
+        spec = load_spec(args.spec)
+        if not verify_table(spec, chips, args.table_min, args.table_max, table_name=args.url or ""):
+            print("Aborted: strategy stakes are not compatible with the table.")
+            return 1
+
     if args.mode == "auto":
         if not args.url:
             print("auto mode needs --url", file=sys.stderr)
