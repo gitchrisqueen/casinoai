@@ -172,6 +172,21 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_claims(args: argparse.Namespace) -> int:
+    from casinoai.discovery import load_claims, render_scoreboard
+
+    entries = load_claims()
+    if not entries:
+        print("No claims in data/claims/ yet — discover strategies first (Phase 8).")
+        return 1
+    md = render_scoreboard(entries)
+    print(md)
+    out = Path("data/claims/scoreboard.md")
+    out.write_text(md + "\n")
+    print(f"\nsaved -> {out}")
+    return 0
+
+
 def _cmd_live(args: argparse.Namespace) -> int:
     from casinoai.live import SessionLimits
     from casinoai.live.playwright_adapter import OperatorBetPlacer
@@ -268,6 +283,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_report = sub.add_parser("report", help="Cross-strategy leaderboard from backtest results")
     p_report.set_defaults(func=_cmd_report)
+
+    p_claims = sub.add_parser("claims", help="Phase 8 claims scoreboard (claimed vs. measured)")
+    p_claims.set_defaults(func=_cmd_claims)
 
     p_live = sub.add_parser(
         "live", help="Human-operated demo/free-play session (H3b, observer mode)"
