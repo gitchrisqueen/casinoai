@@ -240,6 +240,9 @@ class Oracle:
         bk = self.spec.bankroll
         if self.progression.busted:
             return f"progression series lost ({self.net_units:+.1f} units)"
+        complete = getattr(self.progression, "complete_reason", None)
+        if complete:
+            return f"strategy goal reached: {complete} ({self.net_units:+.1f} units)"
         if bk.max_rounds is not None and self.rounds_played >= bk.max_rounds:
             return f"max rounds reached ({bk.max_rounds})"
         if bk.stop_loss_units is not None and self.net_units <= -bk.stop_loss_units:

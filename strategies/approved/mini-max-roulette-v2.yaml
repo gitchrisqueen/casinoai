@@ -1,0 +1,85 @@
+name: Mini-Max Roulette
+version: 2
+game: roulette
+also_applicable_to: []
+summary: 'One even-money red/black wager per spin. Bet placement by IAB: bet the previous
+  decision (S mode); after two consecutive losing bets switch to betting the second-preceding
+  decision (S2), and back again after two more. Bet sizing by the Mini-Max chip stacks:
+  three spots A/B/C of one Base Bet each; always wager the entire leftmost non-empty
+  stack; a win returns the stake and places the winnings on the leftmost empty spot,
+  else cycling B, C, A. Winning any single wager of 4+ units (the Pivot Bet) completes
+  the game. A game allows two Betting Groups (6 units max exposure) with a special
+  Loss Limit of 4 units.'
+table_rules:
+  variant: european
+  min_bet: null
+  max_bet: null
+  notes:
+  - Book prefers single-zero; zero-hedge (BPS) add-on not modeled (no complete procedure).
+bets:
+- bet_type: red
+  description: null
+- bet_type: black
+  description: null
+bet_selection:
+  kind: registered
+  name: iab
+  description: IAB S/S2 mode switching on two consecutive losses; zeros ignored in
+    decision history
+entry_conditions: []
+progression:
+  kind: registered
+  name: mini_max
+  description: A/B/C chip stacks, leftmost-stack wagers, replenish-then-cycle winnings,
+    pivot completion, two groups
+bankroll:
+  unit_size: 10.0
+  session_bankroll_units: 6.0
+  stop_loss_units: 4.0
+  stop_win_units: null
+  max_bet_units: null
+  max_rounds: null
+state_tracked:
+- previous spin result (ignoring zeros for IAB purpose)
+- current bet-selection pattern (S or S2)
+- count of consecutive losing even-money bets
+- contents (chip counts) of Spots A, B, C in current Betting Group
+- number of Betting Groups used in current game (Group 1 or Group 2)
+- zero-hedge series progress (number of consecutive zero bets placed and current stake
+  in zero series)
+assumptions:
+- Base Bet (1 unit) is chosen by player (examples in book use $10 base). The spec
+  leaves currency/unit numeric base unspecified (unit_size=null) because book gives
+  multiple example unit sizes.
+- A 'game' (session) is the sequence of spins from initial setup of Group 1 until
+  either (a) a Pivot Bet is won (a single wager >= 4 * Base Bet) or (b) the Loss Limit
+  is reached.
+- When starting without knowledge of the previous spin (e.g., starting online with
+  no history), start with pattern S and bet Red as instructed by the book.
+- Zeros (0 or 00) are ignored when determining bet placement under IAB; a spin that
+  lands on zero counts as a loss for wagers but does not change the S/S2 pattern selection
+  logic.
+ambiguities: []
+source:
+  pdf_path: pdfs/Casino_Guides/Mini-MaxRoulette-Book.pdf
+  sha256: 97ec5278d810a1aba0d3161c77e04fa307e089854ad137e34c40438fbd943b71
+  parser: pymupdf4llm
+approval:
+  approved_by: claude (review delegated by chris, 2026-07-22)
+  approved_at: '2026-07-23T03:57:57.112919+00:00'
+  annotations:
+  - 'Draft v1 ambiguities resolved (machines in casinoai/rules/library.py, unit-tested
+    against the book''s worked examples pp.66-67 and 70-73):'
+  - '6- vs 9-unit buy-in: 6 units per game per the rules summary (''never risk more
+    than two Betting Groups''); the 9-unit figure belongs to the optional zero-hedge
+    (BPS) variant, which has no complete procedure and is not modeled.'
+  - "4-unit Loss Limit vs 6-unit exposure: both enforced as written \u2014 stop at\
+    \ net -4u or after two lost groups, whichever first."
+  - 'Winnings placement: leftmost empty spot replenished first, else the B->C->A cycle;
+    the cycle pointer does not advance on replenishments (matches the worked example).'
+  - 'En prison / la partage: not modeled; the book notes them as edge-reducers but
+    ties no rules to them.'
+  - 'PPCP (pull back and continue) optional move: not modeled; the book itself recommends
+    calling the game complete at the pivot.'
+  - 'Online ''default to Red before any decision'' shortcut: not modeled; sessions
+    observe one decision before betting, per the land-based rule.'
