@@ -439,3 +439,20 @@ def test_default_craps_parser_and_frame():
     assert default_craps_parser({"chat": "hi"}) is None
     frame = '3:::{"data":{"_type":"CoupResult","lineResult":"point_made"}}'
     assert extract_line_results_from_frame(frame) == ["pass_win"]
+
+
+def test_extract_gpas_opcode45_roulette_result():
+    """Softswiss/gpas encodes a spin as a chr(0xFD)-delimited command; opcode 45,
+    field[2] = winning pocket (real captured format: 45ý0ý29ý200 -> 29)."""
+    from casinoai.live.playwright_adapter import extract_pockets_from_frame
+
+    d = "\xfd"
+    frame = (
+        '3:::{"correlationId":"r","data":{"gameData":{"commands":['
+        f'"42{d}0","45{d}0{d}29{d}200","48{d}0{d}0"]}},"winAmount":200,'
+        '"_type":"com.pt.casino.platform.game.GameCommand"}}'
+    )
+    assert extract_pockets_from_frame(frame) == ["29"]
+    # a zero result and the config command (opcode 13100) must not false-match
+    frame0 = '3:::{"data":{"gameData":{"commands":["45\xfd0\xfd0\xfd200","13100\xfd0\xfd1.10"]}}}'
+    assert extract_pockets_from_frame(frame0) == ["0"]

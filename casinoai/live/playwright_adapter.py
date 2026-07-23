@@ -82,10 +82,26 @@ def _loads_framed(raw: str):
         return None
 
 
+_POCKET_RE = re.compile(r"00|0|[1-9]|[12][0-9]|3[0-6]")
+# Softswiss / twogameslink 'gpas' games encode a spin as a chr(0xFD)-delimited
+# command string inside gameData.commands, opcode 45 = result, field[2] = pocket
+# (captured live: "45ý0ý29ý200" -> winning number 29). Delimiter is 'ý' (0xFD).
+_GPAS_DELIM = "\xfd"
+
+
+def _gpas_pocket(s: str) -> str | None:
+    if _GPAS_DELIM not in s:
+        return None
+    parts = s.split(_GPAS_DELIM)
+    if len(parts) >= 3 and parts[0] == "45" and _POCKET_RE.fullmatch(parts[2]):
+        return parts[2]
+    return None
+
+
 def extract_pockets_from_frame(raw: str, parser: ResultParser = default_result_parser) -> list[str]:
     """Pure helper (unit-tested): pull any roulette results out of one raw
-    WebSocket frame. Accepts bare JSON, JSON arrays, socket.io-framed messages,
-    and nested dicts; returns every pocket the parser recognizes. Non-JSON → []."""
+    WebSocket frame. Handles bare JSON, arrays, socket.io framing, nested dicts,
+    AND Softswiss/gpas opcode-45 command strings. Non-JSON → []."""
     data = _loads_framed(raw)
     if data is None:
         return []
@@ -102,6 +118,10 @@ def extract_pockets_from_frame(raw: str, parser: ResultParser = default_result_p
         elif isinstance(node, list):
             for v in node:
                 walk(v)
+        elif isinstance(node, str):
+            g = _gpas_pocket(node)
+            if g is not None:
+                found.append(g)
 
     walk(data)
     return found
