@@ -22,6 +22,7 @@ from __future__ import annotations
 # case-insensitive for :has-text; :text-matches takes an explicit "i" flag.
 DOM_CANDIDATES: dict[str, list[str]] = {
     "play_for_free": [
+        "#game_link",  # casino.guru: a <span>, not a button
         'button:has-text("Play for free")',
         'a:has-text("Play for free")',
         'button:has-text("Play for fun")',
@@ -40,18 +41,30 @@ DOM_CANDIDATES: dict[str, list[str]] = {
         'button:has-text("OK")',
     ],
     "settings": [
+        "#nav-opener",  # OneTouch: the in-game hamburger
+        "button.nav-opener",
+        'button[aria-label="Open menu" i]',
         'button[aria-label*="setting" i]',
         '[aria-label*="setting" i]',
         'button:has-text("Settings")',
         'button[aria-label*="menu" i]',
     ],
+    "game_settings": [
+        "li#settings",  # OneTouch: 'Game settings' inside the hamburger menu
+        "#settings",
+        '[id="settings"]',
+    ],
     "turbo": [
-        ':text-matches("turbo", "i")',
+        ".cb_animations-row label",  # OneTouch: the Animations checkbox row
+        ".cb_turbo-row label",
+        '[class*="animation" i] label',
         ':text-matches("fast play", "i")',
         ':text-matches("quick spin", "i")',
         ':text-matches("skip animation|disable animation", "i")',
     ],
     "close_settings": [
+        "li#close",  # OneTouch: the menu's X
+        "#close",
         '[aria-label="Close" i]',
         'button[aria-label*="close" i]',
         'button:has-text("Done")',
@@ -146,7 +159,8 @@ def _visible_boxes(frame, selector: str) -> list:
 TEXT_PATTERNS: dict[str, str] = {
     "play_for_free": r"play for (free|fun)|demo play|try (it )?for free",
     "close_dialog": r"^(accept all|accept|i agree|got it|continue|ok|close)$",
-    "settings": r"^(settings|options)$",
+    "settings": r"^(settings|options|menu)$",
+    "game_settings": r"^game settings$",
     "turbo": r"turbo|fast play|quick spin|skip animation|disable animation",
     "close_settings": r"^(done|back|close|apply)$",
     "repeat_bet": r"^(repeat|rebet|re-bet)$",

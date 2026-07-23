@@ -1,0 +1,95 @@
+id: casino-guru-no-commission-baccarat-play-free-f1fc44bc
+name: casino.guru baccarat (OneTouch)
+game: baccarat
+url: https://casino.guru/no-commission-baccarat-play-free
+viewport_w: 1280
+viewport_h: 800
+points:
+  play_for_free:
+    x: 0.0
+    y: 0.0
+    note: play_for_free
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: '#game_link'
+    frame_url: ''
+  settings:
+    x: 0.0
+    y: 0.0
+    note: settings
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: '#nav-opener'
+    frame_url: ''
+  game_settings:
+    x: 0.0
+    y: 0.0
+    note: game_settings
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: li#settings
+    frame_url: ''
+  turbo:
+    x: 0.0
+    y: 0.0
+    note: turbo
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: .cb_animations-row label
+    frame_url: ''
+  close_settings:
+    x: 0.0
+    y: 0.0
+    note: close_settings
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: li#close
+    frame_url: ''
+  chip_min:
+    x: 558.0
+    y: 732.0
+    note: chip_min
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  player_box:
+    x: 519.0
+    y: 631.0
+    note: player_box
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  deal:
+    x: 1136.0
+    y: 699.0
+    note: deal
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+startup:
+- play_for_free
+- settings
+- game_settings
+- turbo
+- close_settings
+advance:
+- chip_min
+- player_box
+- deal
+click_pause_ms: 700
+settle_ms: 6000
+startup_pause_ms: 2500
+calibrated_at: '2026-07-23T21:16:38+00:00'
+vision_model: ''
+stale: false

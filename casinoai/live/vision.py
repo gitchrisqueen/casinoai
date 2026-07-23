@@ -66,6 +66,12 @@ _COMMON_STARTUP = [
         required=False,
     ),
     ControlSpec(
+        name="game_settings",
+        description="the 'Game settings' entry inside the opened menu",
+        phase="startup",
+        required=False,
+    ),
+    ControlSpec(
         name="turbo",
         description=(
             "the toggle that speeds play up — 'Turbo', 'Fast play', 'Quick spin', or "
