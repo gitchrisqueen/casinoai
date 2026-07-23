@@ -20,6 +20,7 @@ initiated, hard caps via SessionGuard. Playwright is an optional extra:
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -70,59 +71,93 @@ def _refuse_if_real_money(urls: list[str]) -> None:
             raise SystemExit(f"Refusing: a real-money signal was seen in {url}")
 
 
+def _host(u: str) -> str:
+    m = re.match(r"[a-z]+://([^/]+)", u or "")
+    return m.group(1) if m else (u or "")[:40]
+
+
 def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path:
-    """Log every WebSocket frame the game exchanges, to discover the result
-    message format. Writes newline-delimited JSON: {ws_url, dir, payload}."""
+    """Log the game's result traffic — WebSocket frames AND HTTP/JSON responses,
+    across the page and any new tab — to discover the result message format.
+    Writes newline-delimited JSON records with a `payload` field."""
     sync_playwright = _require_playwright()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    frames: list[dict] = []
+    records: list[dict] = []
+    tabs = {"n": 0}
+    hosts: set[str] = set()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not headed)
         page = browser.new_page()
 
-        # Capture from the page AND any new tab/popup (the game often opens one).
+        def on_response(resp):
+            try:
+                rt = resp.request.resource_type
+                if rt not in ("xhr", "fetch"):
+                    return
+                hosts.add(_host(resp.url))
+                ctype = (resp.headers or {}).get("content-type", "")
+                if "json" not in ctype and "text" not in ctype:
+                    return
+                body = resp.text()[:2000]
+                records.append({"kind": "http", "ws_url": resp.url, "dir": rt, "payload": body})
+            except Exception:
+                pass
+
+        # Hook every page (current + any new tab/popup) for BOTH transports.
         def hook(pg):
+            tabs["n"] += 1
+
             def on_ws(ws):
                 _refuse_if_real_money([ws.url])
-                ws.on(
-                    "framereceived",
-                    lambda payload: frames.append(
-                        {"ws_url": ws.url, "dir": "recv", "payload": str(payload)[:1000]}
-                    ),
-                )
-                ws.on(
-                    "framesent",
-                    lambda payload: frames.append(
-                        {"ws_url": ws.url, "dir": "sent", "payload": str(payload)[:1000]}
-                    ),
-                )
+                hosts.add(_host(ws.url))
+                for ev in ("framereceived", "framesent"):
+                    d = "recv" if ev == "framereceived" else "sent"
+                    ws.on(
+                        ev,
+                        lambda payload, d=d, u=ws.url: records.append(
+                            {"kind": "ws", "ws_url": u, "dir": d, "payload": str(payload)[:1500]}
+                        ),
+                    )
 
             pg.on("websocket", on_ws)
+            pg.on("response", on_response)
 
         hook(page)
         page.context.on("page", hook)
-        print(f"Opening {url} — capturing WebSocket frames for {seconds}s ...")
+        print(f"Opening {url} — capturing WebSocket + HTTP result traffic for {seconds}s ...")
         print(
             "  (if the game opens in a NEW TAB, that's fine — we follow it. "
-            "Click 'Play for free' and play a few rounds.)"
+            "Click 'Play for free' and play several rounds.)"
         )
         page.goto(url)
         page.wait_for_timeout(seconds * 1000)
         browser.close()
 
     with out_path.open("w") as f:
-        for fr in frames:
-            f.write(json.dumps(fr) + "\n")
-    hits = [fr for fr in frames if default_result_parser_hits(fr["payload"])]
-    print(f"Captured {len(frames)} frames -> {out_path}")
-    print(f"  {len(hits)} frame(s) look like they contain a game result:")
-    for fr in hits[:5]:
-        print(f"    {fr['ws_url'][:60]} : {fr['payload'][:160]}")
-    if not hits:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+
+    ws_n = sum(1 for r in records if r["kind"] == "ws")
+    http_n = sum(1 for r in records if r["kind"] == "http")
+    hits = [r for r in records if default_result_parser_hits(r["payload"])]
+    print(
+        f"Captured {ws_n} WS frames + {http_n} HTTP/JSON responses "
+        f"across {tabs['n']} tab(s) -> {out_path}"
+    )
+    print(f"  hosts seen: {', '.join(sorted(hosts)) or '(none)'}")
+    print(f"  {len(hits)} record(s) look like they contain a game result:")
+    for r in hits[:5]:
+        print(f"    [{r['kind']}] {r['ws_url'][:55]} : {r['payload'][:150]}")
+    if not records:
         print(
-            "  (none matched the default parser — inspect the file and write a "
-            "provider-specific parser)"
+            "  Captured NOTHING — the game tab may not have loaded, or blocks "
+            "automation. Try playing more rounds, or a different demo table."
+        )
+    elif not hits:
+        print(
+            "  (traffic captured but no result matched — paste a few records "
+            "from the file and I'll add a provider-specific parser)"
         )
     return out_path
 
