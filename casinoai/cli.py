@@ -172,6 +172,40 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_registry(args: argparse.Namespace) -> int:
+    from casinoai.strategies import load_spec
+    from casinoai.strategies.identity import (
+        StrategyRegistry,
+        load_approved_specs,
+    )
+
+    reg = StrategyRegistry.load()
+    if args.seed:
+        for spec in load_approved_specs():
+            reg.register(spec, f"approved:{spec.name}")
+        reg.save()
+        print(f"Seeded registry with approved strategies -> {len(reg.entries)} systems.")
+    if args.check:
+        spec = load_spec(Path(args.check))
+        result = reg.check(spec, known_specs=load_approved_specs())
+        print(
+            f"{spec.name}: {result.status.upper()}"
+            + (
+                f" (matches '{result.matched_name}': {result.reason})"
+                if result.matched_name
+                else ""
+            )
+        )
+        return 0
+    print(f"Strategy registry — {len(reg.entries)} distinct systems:")
+    for e in reg.entries.values():
+        print(
+            f"  [{e.game}] {e.canonical_name}  fp={e.core_fingerprint}  "
+            f"variants={len(e.full_fingerprints)}  sources={len(e.sources)}"
+        )
+    return 0
+
+
 def _cmd_claims(args: argparse.Namespace) -> int:
     from casinoai.discovery import load_claims, render_scoreboard
 
@@ -286,6 +320,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_claims = sub.add_parser("claims", help="Phase 8 claims scoreboard (claimed vs. measured)")
     p_claims.set_defaults(func=_cmd_claims)
+
+    p_reg = sub.add_parser("registry", help="Strategy dedup registry (identity by mechanics)")
+    p_reg.add_argument("--seed", action="store_true", help="Register all approved strategies")
+    p_reg.add_argument("--check", default=None, help="Classify a spec YAML against the registry")
+    p_reg.set_defaults(func=_cmd_registry)
 
     p_live = sub.add_parser(
         "live", help="Human-operated demo/free-play session (H3b, observer mode)"
