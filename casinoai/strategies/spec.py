@@ -109,12 +109,23 @@ class CustomProgression(BaseModel):
     )
 
 
+class RegisteredProgression(BaseModel):
+    """A human translation of a procedural progression: a named, reviewed state
+    machine in casinoai/rules/library.py. The translation is code so git — not
+    the LLM — is the review surface."""
+
+    kind: Literal["registered"] = "registered"
+    name: str = Field(description="Key in the rules library registry")
+    description: str
+
+
 Progression = Annotated[
     FlatProgression
     | MultiplierProgression
     | FibonacciProgression
     | LadderProgression
-    | CustomProgression,
+    | CustomProgression
+    | RegisteredProgression,
     Field(discriminator="kind"),
 ]
 
@@ -151,8 +162,17 @@ class CustomSelection(BaseModel):
     rules: list[str] = Field(default_factory=list)
 
 
+class RegisteredSelection(BaseModel):
+    """A human translation of a procedural bet-selection rule; see
+    RegisteredProgression."""
+
+    kind: Literal["registered"] = "registered"
+    name: str = Field(description="Key in the rules library registry")
+    description: str
+
+
 BetSelection = Annotated[
-    FixedSelection | FollowLagSelection | CustomSelection,
+    FixedSelection | FollowLagSelection | CustomSelection | RegisteredSelection,
     Field(discriminator="kind"),
 ]
 

@@ -1,0 +1,97 @@
+name: Super Fibonacci
+version: 2
+game: baccarat
+also_applicable_to:
+- roulette
+- craps
+- blackjack
+summary: 'Even-money system: 7-step modified-''Fibonacci'' ladder (units 1, 1.6, 2.6,
+  4, 7, 10, 12 for a $5 base) with a mandatory parlay after every win; a winning parlay
+  completes the series. After three consecutive losing wagers, switch to a 5-step
+  Martingale fallback (1, 2, 4, 8, 16 units) until a win, then resume the ladder one
+  level above the last ladder loss. Bets chosen by Power Pivot: repeat the previous
+  decision (Same mode) or its opposite, switching modes after each loss, with a one-round
+  extension after three consecutive losses. The session ends when the next required
+  wager cannot be covered.'
+table_rules:
+  variant: 8-deck punto banco
+  min_bet: null
+  max_bet: null
+  notes:
+  - Banker commission 5% applies; the book treats banker as even-money anyway.
+bets:
+- bet_type: player
+  description: null
+- bet_type: banker
+  description: null
+bet_selection:
+  kind: registered
+  name: power_pivot
+  description: Same/Opposite mode switching on losses; 3-loss one-round extension;
+    no bet until one decision observed; ties are no-decisions
+entry_conditions: []
+progression:
+  kind: registered
+  name: super_fibonacci
+  description: 7-step ladder + mandatory parlay + 5-step Martingale fallback after
+    3 consecutive losses
+bankroll:
+  unit_size: 5.0
+  session_bankroll_units: 40.0
+  stop_loss_units: 40.0
+  stop_win_units: null
+  max_bet_units: 24.0
+  max_rounds: null
+state_tracked:
+- Previous decision outcome (for Power Pivot Same/Opposite mode)
+- 'Current bet selection mode: Same, Opposite, or Extended'
+- Consecutive loss count
+- "Current position in the Fibonacci betting series (level 1\u20137) or Martingale\
+  \ fallback series (level 1\u20135)"
+- Whether the next wager is a parlay
+- Last losing Fibonacci level before entering Martingale fallback
+- Session cumulative profit/loss
+assumptions:
+- The $5 base-bet version is used as the primary example; the system scales to other
+  bases ($1, $2, $10, $25, etc.) with proportional bankrolls and series values.
+- Total bankroll should be at least three times the Game Bankroll (session buy-in).
+- "Win goal is stated as $80\u2013$100 for the $5 base (16\u201320 units), but the\
+  \ cardinal stop-win rule is to quit immediately after any winning parlay."
+- For online play where a wager is required to activate the game, the player may assume
+  an arbitrary starting mode and bet (e.g., bet Player in Same Mode) without observing
+  a prior decision.
+- Ties in baccarat and zeros in roulette are ignored for determining the Power Pivot
+  mode, but they count as losses for bet-sizing progression (except under en prison/la
+  partage rules, where a push/surrender may keep the bet size unchanged).
+- Blackjack requires a larger Game Bankroll than the standard table because of splits
+  and doubles, and uses a modified basic strategy provided in the source.
+- The source also mentions Sic Bo as applicable, but it is not included in the schema
+  enum.
+ambiguities: []
+source:
+  pdf_path: pdfs/Casino_Guides/SuperFibonacci-book.pdf
+  sha256: 768bd924053fb86c944f6f581119e5c7b40b540bd8461814a31f3b083cffff03
+  parser: pymupdf4llm
+approval:
+  approved_by: claude (review delegated by chris, 2026-07-22)
+  approved_at: '2026-07-23T03:17:57.743556+00:00'
+  annotations:
+  - 'Draft v1 ambiguities resolved as follows (machine: casinoai/rules/library.py):'
+  - "'Fibonacci' series 5-8-13-20-35-50-60 is not the true Fibonacci sequence: modeled\
+    \ exactly as printed \u2014 we test the book's system, not its math vocabulary."
+  - 'Parlay loss at ladder top (level 7): no higher level exists; the 3-consecutive-loss
+    Martingale trigger governs, and the level is capped at 7 until then.'
+  - 'Martingale exhaustion (5 straight losses): source silent; modeled as a busted
+    series (session over). Sum lost by then exceeds the 40-unit game bankroll anyway.'
+  - 'Sample-game contradiction (resume at $50 vs ''one level higher'' rule): the written
+    rule wins; resume one level above the last ladder loss.'
+  - 'Player Card ''28'' at level 4 vs text''s ''20'': using 20 (13 occurrences in
+    text and all sample games).'
+  - 'Power Pivot: no bet until one decision observed; ties are non-decisions (bet
+    pushes, no mode switch); the 3-loss extension follows the written text, treating
+    the p.64 table as consistent with it per the verifier.'
+  - "Primary game baccarat (mini-baccarat is the book's main text); roulette/craps/blackjack\
+    \ variants noted in also_applicable_to but not modeled \u2014 blackjack uses bet-sizing\
+    \ only per p.115 and needs the future blackjack engine."
+  - "Banker commission: engine settles banker wins at 0.95:1 as real tables do, even\
+    \ though the book calls it even-money \u2014 honest measurement includes the commission."

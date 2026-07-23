@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from casinoai.engines.baccarat import BaccaratEngine, BaccaratOutcome
 from casinoai.engines.roulette import RouletteEngine, RouletteOutcome
+from casinoai.rules.library import PROGRESSIONS, SELECTIONS
 from casinoai.strategies.spec import (
     FibonacciProgression,
     FlatProgression,
@@ -23,6 +24,8 @@ from casinoai.strategies.spec import (
     GameType,
     LadderProgression,
     MultiplierProgression,
+    RegisteredProgression,
+    RegisteredSelection,
     StrategySpec,
     StreakCondition,
 )
@@ -134,7 +137,15 @@ class Oracle:
         _validate_compilable(spec)
         self.spec = spec
         self.settle = _SETTLERS[spec.game]
-        self.progression = _ProgressionState(spec.progression)
+        if isinstance(spec.progression, RegisteredProgression):
+            self.progression = PROGRESSIONS[spec.progression.name]()
+        else:
+            self.progression = _ProgressionState(spec.progression)
+        self._registered_selection = (
+            SELECTIONS[spec.bet_selection.name]()
+            if isinstance(spec.bet_selection, RegisteredSelection)
+            else None
+        )
         self.outcomes: list[Any] = []
         self.net_units = 0.0
         self.rounds_played = 0
@@ -161,17 +172,25 @@ class Oracle:
         max_bet = self.spec.bankroll.max_bet_units
         if max_bet is not None:
             stake = min(stake, max_bet)
+        bankroll = self.spec.bankroll.session_bankroll_units
+        if bankroll is not None and stake * len(bet_types) > bankroll + self.net_units:
+            self.stopped = f"cannot cover next wager ({self.net_units:+.1f} units)"
+            return Action(stop=True, reason=self.stopped)
         self._pending = [PlacedBet(bet_type=bt, stake_units=stake) for bt in bet_types]
         return Action(bets=list(self._pending))
 
     def observe(self, outcome: Any) -> float:
         """Settle the pending action against the outcome; returns net units."""
         net = sum(self.settle(bet.bet_type, bet.stake_units, outcome) for bet in self._pending)
-        if self._pending:
+        had_bet = bool(self._pending)
+        if had_bet:
             self.rounds_played += 1
             self.net_units += net
-            won = net > 0
-            self.progression.advance(won)
+            if net != 0:  # a push (tie) is neither a win nor a loss
+                self.progression.advance(net > 0)
+        if self._registered_selection is not None:
+            won = (net > 0) if had_bet and net != 0 else None
+            self._registered_selection.observe(outcome, won)
         self.outcomes.append(outcome)
         self._pending = []
         return net
@@ -180,6 +199,10 @@ class Oracle:
 
     def _select_bets(self) -> list[str]:
         """Resolve which bet types to place this round; [] = sit out."""
+        if self._registered_selection is not None:
+            bet_type = self._registered_selection.select()
+            allowed = {b.bet_type for b in self.spec.bets}
+            return [bet_type] if bet_type in allowed else []
         selection = self.spec.bet_selection
         if not isinstance(selection, FollowLagSelection):
             return [b.bet_type for b in self.spec.bets]
@@ -243,6 +266,10 @@ def _validate_compilable(spec: StrategySpec) -> None:
         problems.append(
             f"custom bet selection needs human translation: {spec.bet_selection.description}"
         )
+    if spec.progression.kind == "registered" and spec.progression.name not in PROGRESSIONS:
+        problems.append(f"registered progression not in library: {spec.progression.name}")
+    if spec.bet_selection.kind == "registered" and spec.bet_selection.name not in SELECTIONS:
+        problems.append(f"registered selection not in library: {spec.bet_selection.name}")
     if not spec.bets:
         problems.append("spec has no bets")
     if spec.ambiguities and spec.approval is None:

@@ -36,7 +36,7 @@ class LLMResponse(BaseModel):
     attempts: int = 1
 
 
-def _resolve_model(model: str | None) -> str:
+def resolve_model(model: str | None) -> str:
     resolved = model or os.environ.get("CASINOAI_DEFAULT_MODEL")
     if not resolved:
         raise LLMError("No model given and CASINOAI_DEFAULT_MODEL is not set")
@@ -132,7 +132,7 @@ def complete(
     """Run one completion; validate against `schema` if given, retrying with
     the validation error fed back to the model. Every call (including failed
     validation attempts) is appended to the cost log."""
-    resolved = _resolve_model(model)
+    resolved = resolve_model(model)
     litellm_model, provider_kwargs = _route(resolved)
     messages: list[dict[str, str]] = []
     if schema is not None:

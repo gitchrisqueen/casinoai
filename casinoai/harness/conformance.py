@@ -46,12 +46,15 @@ def _actions_match(oracle_action: Action, agent_bets: list[AgentBet], agent_stop
 
 def run_conformance(
     spec: StrategySpec,
-    model: str,
+    model: str | None,
     rounds: int,
     seed: int = 0,
 ) -> ConformanceReport:
     """The oracle plays the session (ground truth drives state); at every round
     the agent is asked for the same decision from the same observable state."""
+    from casinoai.llm import resolve_model
+
+    model = resolve_model(model)
     engine = make_engine(spec, seed)
     oracle = compile_spec(spec)
     history: list[RoundLog] = []
