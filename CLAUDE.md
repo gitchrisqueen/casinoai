@@ -6,7 +6,7 @@ Guidance for Claude Code when working in this repository.
 
 CasinoAI tests casino betting strategies in a systemized way: parse strategy PDFs (`pdfs/`) into machine-executable `StrategySpec`s, verify an LLM agent conforms to each strategy via a deterministic oracle, backtest strategies with Monte Carlo simulation, and finally measure performance against live/demo casino tables. The full roadmap, hypotheses (H1–H3), and phase breakdown live in [PLAN.md](PLAN.md) — read it before making architectural decisions.
 
-**Current state:** transitioning from the 2023 prototype (LangChain + Weaviate RAG, skeleton agents — being moved to `legacy/`) to the architecture in PLAN.md. When old prototype code conflicts with PLAN.md, PLAN.md wins.
+**Current state (2026-07-22):** Phases 0–5 core built and tested (gateway, parsing, extraction, roulette/baccarat engines, oracle, conformance harness, backtester; 2023 prototype archived in `legacy/`). Five strategy books extracted to draft specs in `data/specs/`; two reviewed, approved, and backtested (`strategies/approved/`): Power Pro Roulette and Super Fibonacci — both negative EV, matching house-edge theory. Procedural systems are translated as **registered machines** in `casinoai/rules/library.py` (git-reviewed code referenced by name from specs). Remaining: Mini-Max + Power Baccarat translations, blackjack/craps engines (Formula 57 needs one), full H2 conformance matrix, Phase 6 live adapter, Phase 8 research-driven strategy discovery.
 
 ## Ground rules
 
