@@ -48,7 +48,7 @@ Runs a single human-operated demo session for a focus strategy, then refreshes
 the claimed-vs-simulated-vs-live tracking table.
 
 ```bash
-./scripts/run_live_session.sh <baccarat|roulette> [demo-url] [manual|auto]
+./scripts/run_live_session.sh <baccarat|roulette> [demo-url] [manual|auto] [chips]
 ```
 
 - **game** — `baccarat` uses Power Baccarat; `roulette` uses Power Pro Roulette.
@@ -57,6 +57,17 @@ the claimed-vs-simulated-vs-live tracking table.
   the result (`p`/`b`/`t` for baccarat, a pocket number for roulette, `w`/`l`/`push`
   for craps). `auto`: the tool reads results off the game's WebSocket (you still
   place the bets).
+- **chips** — the table's chip denominations, e.g. `1,5,25,100,500` (or set `CHIPS=...`).
+
+**Table check runs first.** Before the session the tool enumerates every stake the
+strategy can require and checks each is placeable on this table — at/above the
+minimum, at/below the maximum, and composable from the chips — so you never assume
+a strategy "works" on a table it can't actually be bet on. If you don't pass
+`[chips]` you're prompted (min/max auto-fill from the last `capture_ws.sh` run).
+A base unit that doesn't divide the chips is exactly the trap this catches: on a
+`5,25,100,500` table with no $1 chip, Power Baccarat's $3 Counterstrike bet is
+flagged; on the OneTouch demo (min 1, chips include 1) it passes. Pass
+`--skip-table-check` to the operator directly to bypass.
 
 Examples:
 ```bash
@@ -64,7 +75,7 @@ Examples:
 ./scripts/run_live_session.sh roulette https://www.roulettesimulator.net/simulators/european-roulette/
 
 # baccarat, auto (reads winners off the wire — verify with capture_ws.sh first)
-./scripts/run_live_session.sh baccarat https://casino.guru/no-commission-baccarat-play-free auto
+./scripts/run_live_session.sh baccarat https://casino.guru/no-commission-baccarat-play-free auto 1,5,25,100,500
 ```
 
 Each session is recorded to `data/results/live/` and folded into `casinoai track`.
