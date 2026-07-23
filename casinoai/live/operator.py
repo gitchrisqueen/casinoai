@@ -12,6 +12,12 @@ Modes:
           format — use `capture` first to discover it.
   capture Open the game and log every WebSocket frame to a file so you can find
           the winning-number message and write/verify a parser. No betting.
+  autoplay Hands-free: drive a CALIBRATED demo table to advance each round and
+          read outcomes off the wire, so you don't place every bet by hand.
+          FREE/DEMO only; prints a TESTING notice and requires a free-mode
+          confirmation. Needs --layout (calibrate once with --calibrate).
+          Physical clicks only advance the demo; measured P&L is the oracle
+          applied to the real outcomes. See casinoai/live/autoplay.py.
 
 Hard rules still apply: demo/free-play only (refuses real-money URLs), human
 initiated, hard caps via SessionGuard. Playwright is an optional extra:
@@ -291,6 +297,79 @@ def run_manual(
     _print_summary(session, path)
 
 
+def _confirm_free_mode(assume_yes: bool = False, read_fn=input) -> bool:
+    """Loud TESTING notice + explicit FREE/DEMO confirmation before auto-play."""
+    from casinoai.live.autoplay import TESTING_BANNER, free_mode_confirmed
+
+    print(TESTING_BANNER)
+    if assume_yes:
+        print("  (--i-am-in-free-mode given; skipping the interactive prompt)\n")
+        return True
+    ans = read_fn("Type 'YES FREE MODE' to confirm the table is FREE/DEMO: ")
+    return free_mode_confirmed(ans)
+
+
+def run_calibrate(spec_path: str, url: str, layout_path: str, headed: bool = True):
+    """One-time table calibration: navigate to the betting table, then record
+    each control's coordinates from a grid screenshot."""
+    from casinoai.live.autoplay import calibrate
+
+    sync_playwright = _require_playwright()
+    assert_demo_mode(url)
+    spec = load_spec(spec_path)
+    pw = sync_playwright().start()
+    browser = pw.chromium.launch(headless=not headed)
+    try:
+        page = browser.new_page()
+        page.goto(url)
+        input(
+            "\nGet the demo to the BETTING TABLE (click 'Play for free', dismiss any "
+            "dialogs, place one bet so 'repeat' works), then press ENTER to calibrate..."
+        )
+        calibrate(page, spec.game.value, name=_host(url), url=url, out_path=layout_path)
+    finally:
+        browser.close()
+
+
+def run_autoplay(
+    spec_path: str,
+    url: str,
+    layout_path: str,
+    limits: SessionLimits,
+    headed: bool = True,
+    assume_yes: bool = False,
+):
+    """Hands-free demo play: drive the calibrated table to advance each round and
+    read real outcomes off the wire. FREE/DEMO only, gated by a free-mode
+    confirmation; measured P&L is the oracle applied to the real outcomes."""
+    from casinoai.live.autoplay import AdvancingReader, AutoPlayDriver, SilentPlacer, load_layout
+
+    if not _confirm_free_mode(assume_yes):
+        print("Aborted: FREE/DEMO mode was not confirmed.")
+        return 1
+
+    sync_playwright = _require_playwright()
+    assert_demo_mode(url)
+    spec = load_spec(spec_path)
+    layout = load_layout(layout_path)  # raises early if the file is missing
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=not headed)
+        page = browser.new_page()
+        base = _auto_reader_for(spec, page)
+        base.attach(url)
+        input(
+            "\nGet the demo to the BETTING TABLE (Play for free, place one bet so "
+            "'repeat' works), then press ENTER to start AUTO-PLAY..."
+        )
+        driver = AutoPlayDriver(page, layout)  # validates the layout is playable
+        reader = AdvancingReader(base, driver)
+        session = run_live_session(spec, reader, SilentPlacer(), limits, table_url=url)
+        browser.close()
+    path = save_session(session)
+    _print_summary(session, path)
+    return 0
+
+
 def _print_summary(session, path):
     print(f"\nSession ended: {session.stop_reason}")
     print(f"  rounds: {len(session.rounds)}  net: {session.net_units:+.1f}u")
@@ -301,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="casinoai.live.operator")
     ap.add_argument("spec", help="Path to an approved spec YAML")
     ap.add_argument("--url", default=None, help="Demo table URL")
-    ap.add_argument("--mode", choices=["manual", "auto", "capture"], default="manual")
+    ap.add_argument("--mode", choices=["manual", "auto", "autoplay", "capture"], default="manual")
     ap.add_argument("--seconds", type=int, default=60, help="capture duration")
     ap.add_argument("--max-bet", type=float, default=8.0)
     ap.add_argument("--max-rounds", type=int, default=200)
@@ -311,6 +390,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--table-min", type=float, default=None, help="Table minimum bet")
     ap.add_argument("--table-max", type=float, default=None, help="Table maximum bet")
     ap.add_argument("--skip-table-check", action="store_true", help="Skip stake/table verification")
+    ap.add_argument("--layout", default=None, help="Calibrated table layout YAML (autoplay)")
+    ap.add_argument("--calibrate", action="store_true", help="Calibrate a table layout, then exit")
+    ap.add_argument(
+        "--i-am-in-free-mode",
+        action="store_true",
+        help="Confirm FREE/DEMO mode non-interactively (autoplay)",
+    )
     args = ap.parse_args(argv)
 
     limits = SessionLimits(
@@ -328,6 +414,14 @@ def main(argv: list[str] | None = None) -> int:
         out = Path("data/results/live/ws_capture.jsonl")
         capture(args.url, args.seconds, out, headed=headed)
         return 0
+
+    if args.calibrate:
+        if not (args.url and args.layout):
+            print("--calibrate needs --url and --layout", file=sys.stderr)
+            return 1
+        run_calibrate(args.spec, args.url, args.layout, headed=headed)
+        return 0
+
     # Verify the strategy's stakes fit the table (chips/min/max) before playing.
     chips = [float(x) for x in args.chips.split(",")] if args.chips else None
     if not args.skip_table_check:
@@ -340,6 +434,18 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         chips = profile.chip_denominations  # reuse the confirmed chips for bet display
 
+    if args.mode == "autoplay":
+        if not (args.url and args.layout):
+            print("autoplay mode needs --url and a calibrated --layout", file=sys.stderr)
+            return 1
+        return run_autoplay(
+            args.spec,
+            args.url,
+            args.layout,
+            limits,
+            headed=headed,
+            assume_yes=args.i_am_in_free_mode,
+        )
     if args.mode == "auto":
         if not args.url:
             print("auto mode needs --url", file=sys.stderr)

@@ -26,9 +26,11 @@ Monte Carlo backtest and its promoter's claims.
 | Run a session for a **focus strategy** (Power Baccarat / Power Pro) and update tracking | `run_live_session.sh` | **Every session** — this is the one you'll use most |
 | Discover/verify how a demo game reports results (needed for `auto` mode) | `capture_ws.sh` | **Once per new demo table**, before using `auto` |
 | Run a session for **any** approved spec (not just the two focus ones), or use capture mode inline | `run_live_demo.sh` | Occasionally, for arbitrary strategies |
+| **Hands-free** play of a FREE/DEMO table to collect sessions fast | `autoplay.sh` | After a one-time per-table calibration |
 
 **Rule of thumb:** `setup_live.sh` once → `run_live_session.sh` for every session.
 Add `capture_ws.sh` once per table only if you want the hands-off `auto` mode.
+Use `autoplay.sh` once you've calibrated a table and want it fully hands-free.
 
 ---
 
@@ -108,6 +110,31 @@ other than the two focus ones, or to invoke `capture` inline.
 ./scripts/run_live_demo.sh strategies/approved/mini-max-roulette-v2.yaml \
     https://www.roulettesimulator.net/simulators/european-roulette/
 ```
+
+## autoplay.sh — hands-free demo play (TESTING ONLY)
+
+Fully automates a **FREE/DEMO** table so you can collect live sessions without
+placing every bet by hand. The tool prints a TESTING notice and **requires you to
+confirm the table is in FREE mode** before it drives anything. Real-money URLs are
+refused, and the same hard bet/round/stop-loss caps apply. Physical clicks only
+*advance the demo*; the recorded P&L is the strategy applied to the **real
+outcomes** read off the wire — identical measurement to manual play.
+
+Because these games render on a canvas inside cross-origin iframes, the click
+positions can't be auto-detected, so each table is **calibrated once**:
+
+```bash
+# 1) Calibrate (opens the demo; you reach the table, then read control x,y off a
+#    coordinate-grid screenshot). Saves configs/table_layouts/<game>.yaml
+./scripts/autoplay.sh baccarat "<demo-url>" calibrate
+
+# 2) Play hands-free (verifies stakes fit the table, confirms FREE mode, then runs)
+./scripts/autoplay.sh baccarat "<demo-url>" play 1,5,25,100,500
+```
+
+An uncalibrated layout **refuses to run** (no blind clicking). See
+[configs/table_layouts/README.md](../configs/table_layouts/README.md) for the
+control names, `settle_ms` tuning, and details.
 
 ---
 

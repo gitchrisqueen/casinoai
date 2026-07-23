@@ -1,0 +1,12 @@
+# Power Baccarat demo table — UNCALIBRATED STUB.
+# Fill in `points` and `advance` by running --calibrate (see README.md).
+# An empty `advance` intentionally refuses to auto-play (no blind clicking).
+name: power-baccarat-demo
+game: baccarat
+url: ""
+viewport_w: 1280
+viewport_h: 800
+points: {}
+advance: []
+click_pause_ms: 700
+settle_ms: 5000
