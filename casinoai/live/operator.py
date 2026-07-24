@@ -368,7 +368,11 @@ def _manual_points(layout, names, read_fn=input) -> None:
 # Which startup controls exist on which screen. Asking for all of them on the
 # landing page can never work — the game's own settings/turbo don't exist yet.
 _LANDING_CONTROLS = ("play_for_free", "close_dialog")
-_GAME_CONTROLS = ("close_dialog", "settings", "turbo", "close_settings")
+# Order matters — this IS the click order for the in-game part of startup:
+# dismiss any dialog, open the menu, open Game settings, toggle turbo/animations,
+# close. Omitting game_settings here silently drops it from the rebuilt sequence
+# and the turbo click then fires before its panel exists.
+_GAME_CONTROLS = ("close_dialog", "settings", "game_settings", "turbo", "close_settings")
 
 
 def _calibrate_phase(

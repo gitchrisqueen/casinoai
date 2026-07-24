@@ -163,3 +163,48 @@ def test_silent_placer_records_intended_bet():
         [SimpleNamespace(stake_units=1.2, bet_type="player")]
     )
     assert "1.2u on player" in lines[0]
+
+
+def test_game_controls_include_game_settings_in_click_order():
+    """Regression: game_settings was defined as a control but left out of
+    _GAME_CONTROLS, so re-calibration silently dropped it from startup and the
+    turbo click then fired before its settings panel existed."""
+    from casinoai.live.operator import _GAME_CONTROLS
+
+    assert "game_settings" in _GAME_CONTROLS
+    order = list(_GAME_CONTROLS)
+    assert order.index("settings") < order.index("game_settings") < order.index("turbo")
+    assert order.index("turbo") < order.index("close_settings")
+
+
+def test_unresolvable_dom_point_is_skipped_not_clicked_at_origin():
+    """A DOM point carries no real pixel (0,0). If its selector doesn't resolve we
+    must skip, not fall through and click the top-left corner."""
+    import casinoai.live.dom as dom_mod
+    from casinoai.live import autoplay
+
+    clicked = []
+
+    class FakeMouse:
+        def click(self, x, y):
+            clicked.append((x, y))
+
+    class FakePage:
+        mouse = FakeMouse()
+        viewport_size = {"width": 1280, "height": 800}
+
+        def wait_for_timeout(self, ms):
+            pass
+
+    original = dom_mod.resolve_locator
+    dom_mod.resolve_locator = lambda page, sel, frame="": None  # never resolves
+    try:
+        layout = TableLayout(name="t", game="baccarat")
+        driver = autoplay.AutoPlayDriver(FakePage(), layout, validate_advance=False)
+        driver.click(ControlPoint(x=0, y=0, selector="li#settings", note="game_settings"))
+        assert clicked == [], "must not click (0,0)"
+        # A point with a real pixel still falls back to it.
+        driver.click(ControlPoint(x=500, y=400, selector="li#nope"))
+        assert clicked == [(500, 400)]
+    finally:
+        dom_mod.resolve_locator = original

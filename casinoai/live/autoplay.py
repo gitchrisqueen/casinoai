@@ -203,6 +203,11 @@ class AutoPlayDriver:
             if loc is not None:
                 loc.click()
                 return
+            # A DOM-sourced point carries no real pixel (0,0), so falling through
+            # would click the top-left corner — a silent wrong click. Skip instead.
+            if pt.x == 0 and pt.y == 0:
+                print(f"  [skip] '{pt.note or pt.selector}' did not resolve on this screen")
+                return
         size = self._page.viewport_size or {
             "width": self._layout.viewport_w,
             "height": self._layout.viewport_h,

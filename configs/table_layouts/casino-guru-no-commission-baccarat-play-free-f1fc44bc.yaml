@@ -6,23 +6,23 @@ viewport_w: 1280
 viewport_h: 800
 points:
   play_for_free:
-    x: 0.0
-    y: 0.0
+    x: 640.0
+    y: 379.0
     note: play_for_free
     source: dom
     confidence: 1.0
     confirmed: true
     selector: '#game_link'
-    frame_url: ''
+    frame_url: https://casino.guru/free-casino-games/baccarat/no-commission-baccarat-play-free
   settings:
-    x: 0.0
-    y: 0.0
+    x: 1258.12890625
+    y: 22.37109375
     note: settings
     source: dom
     confidence: 1.0
     confirmed: true
     selector: '#nav-opener'
-    frame_url: ''
+    frame_url: https://files.onetouch.io/game/baccarat-revamp/latest/nocomm/index.html?config_id=5d5d14c9bf059a00019c8a50&session_id=0e467833-532b-4beb-b1bc-64bb87ca995c&lobby_url=https%3A%2F%2Fwww.onetouch.io%2Fgames%2F&deposit_url=https%3A%2F%2Fonetouch.io&device_platform=desktop&engine_base_url=https://playmode.onetouch.io&sub_partner_id=bitcasino&lang=&ts=1784859234986
   game_settings:
     x: 0.0
     y: 0.0
@@ -90,6 +90,6 @@ advance:
 click_pause_ms: 700
 settle_ms: 6000
 startup_pause_ms: 2500
-calibrated_at: '2026-07-23T21:16:38+00:00'
-vision_model: ''
+calibrated_at: '2026-07-24T02:18:24+00:00'
+vision_model: ollama-cloud/minimax-m3
 stale: false
