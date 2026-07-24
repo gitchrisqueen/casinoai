@@ -342,6 +342,89 @@ def extract_line_results_from_frame(
     return found
 
 
+# --- blackjack -------------------------------------------------------------------
+
+_BJ_WORDS = {
+    "win": "win",
+    "won": "win",
+    "player_win": "win",
+    "player": "win",
+    "dealer_bust": "win",
+    "loss": "loss",
+    "lose": "loss",
+    "lost": "loss",
+    "bust": "loss",
+    "player_bust": "loss",
+    "dealer_win": "loss",
+    "dealer": "loss",
+    "dealer_blackjack": "loss",
+    "push": "push",
+    "tie": "push",
+    "draw": "push",
+    "standoff": "push",
+    "blackjack": "blackjack",
+    "bj": "blackjack",
+    "natural": "blackjack",
+    "player_blackjack": "blackjack",
+}
+
+
+def default_blackjack_parser(payload: dict) -> str | None:
+    """Best-effort blackjack hand-result parser: reads an explicit result word
+    ('win'/'loss'/'push'/'blackjack') from the key names providers commonly use.
+
+    UNVERIFIED — unlike the roulette/baccarat parsers, this one was never checked
+    against a real provider's traffic, because we have no live blackjack demo
+    table to reverse-engineer. Run `--mode capture` on the target table and
+    confirm (or replace) it before trusting an auto session's numbers.
+
+    It deliberately does NOT infer a result from player/dealer totals: totals say
+    nothing about doubles or splits, so a doubled hand would be recorded at half
+    its real net and silently corrupt the measurement. Returning None instead
+    makes the gap visible."""
+    for key in (
+        "handResult",
+        "hand_result",
+        "playerResult",
+        "player_result",
+        "result",
+        "outcome",
+        "gameResult",
+        "status",
+        "winner",
+    ):
+        if key in payload:
+            v = str(payload[key]).strip().lower().replace(" ", "_").replace("-", "_")
+            if v in _BJ_WORDS:
+                return _BJ_WORDS[v]
+    return None
+
+
+def extract_blackjack_results_from_frame(
+    raw: str, parser: ResultParser = default_blackjack_parser
+) -> list[str]:
+    """Pure helper (unit-tested): pull blackjack hand results out of one WS
+    frame. Same framing handling as the other games."""
+    data = _loads_framed(raw)
+    if data is None:
+        return []
+    found: list[str] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            r = parser(node)
+            if r is not None:
+                found.append(r)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(data)
+    return found
+
+
 class PlaywrightRouletteReader:
     """Reads roulette spin outcomes off the game's WebSocket frames.
 
@@ -467,6 +550,46 @@ class PlaywrightCrapsReader:
         while waited < self._timeout_s:
             if self._pending:
                 return _craps_outcome(LineResult(self._pending.pop(0)))
+            self._page.wait_for_timeout(500)
+            waited += 0.5
+        return None
+
+
+class PlaywrightBlackjackReader:
+    """Reads blackjack hand results off the game's WebSocket frames; emits
+    BlackjackOutcome. One hand = one round, matching the engine.
+
+    Its parser is UNVERIFIED against any real provider (see
+    default_blackjack_parser) — capture a table's traffic before relying on it."""
+
+    def __init__(
+        self, page, parser: ResultParser = default_blackjack_parser, timeout_s: float = 120.0
+    ):
+        self._page = page
+        self._parser = parser
+        self._timeout_s = timeout_s
+        self._pending: list[str] = []
+        self._is_demo = False
+
+    def attach(self, game_url: str) -> None:
+        assert_demo_mode(game_url)
+        self._is_demo = True
+        wire_result_capture(self._page, self._on_frame)
+        self._page.goto(game_url)
+
+    def _on_frame(self, payload) -> None:
+        self._pending.extend(extract_blackjack_results_from_frame(payload, self._parser))
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self):
+        from casinoai.live.reader import _blackjack_from_token
+
+        waited = 0.0
+        while waited < self._timeout_s:
+            if self._pending:
+                return _blackjack_from_token(self._pending.pop(0))
             self._page.wait_for_timeout(500)
             waited += 0.5
         return None

@@ -7,9 +7,11 @@ bindings live in playwright_adapter.py; the session logic depends only on these
 protocols, so it is fully testable without a browser.
 """
 
+import re
 from typing import Any, Protocol, runtime_checkable
 
 from casinoai.engines.baccarat import BaccaratOutcome, BaccaratWinner
+from casinoai.engines.blackjack import BlackjackOutcome
 from casinoai.engines.craps import CrapsOutcome, LineResult
 from casinoai.engines.roulette import RouletteOutcome
 
@@ -46,6 +48,24 @@ def _craps_outcome(result: LineResult) -> CrapsOutcome:
     placeholder = {LineResult.PASS_WIN: 7, LineResult.PASS_LOSE: 2, LineResult.DONT_PUSH: 12}
     co = placeholder[result]
     return CrapsOutcome(result=result, come_out=co, point=None, rolls=[co], seven_out=False)
+
+
+def _blackjack_outcome(
+    net: float, staked: float, player_bj: bool = False, split: bool = False
+) -> BlackjackOutcome:
+    """A minimal BlackjackOutcome carrying only the observed multipliers — the
+    net is all BlackjackEngine.settle reads. Card totals are placeholders: an
+    observer sees the hand's verdict, not the cards."""
+    return BlackjackOutcome(
+        net_multiplier=net,
+        total_staked_multiplier=staked,
+        player_totals=[],
+        dealer_total=0,
+        player_blackjack=player_bj,
+        dealer_blackjack=False,
+        doubled=staked >= 2.0 and not split,
+        split=split,
+    )
 
 
 @runtime_checkable
@@ -225,3 +245,110 @@ class RecordedCrapsReader:
         r = self._results[self._i]
         self._i += 1
         return _craps_outcome(LineResult(r))
+
+
+# Net / total-staked multipliers per named blackjack result, exactly as
+# BlackjackEngine.deal() emits them: a natural pays 3:2, and a doubled hand puts
+# out — and wins or loses — twice the base unit. Splits are deliberately absent:
+# they settle two hands and land on nets no single word covers, so they are
+# entered as a number instead.
+_BJ_RESULTS: dict[str, tuple[float, float, bool]] = {
+    "win": (1.0, 1.0, False),
+    "loss": (-1.0, 1.0, False),
+    "push": (0.0, 1.0, False),
+    "blackjack": (1.5, 1.0, True),
+    "double_win": (2.0, 2.0, False),
+    "double_loss": (-2.0, 2.0, False),
+    "double_push": (0.0, 2.0, False),
+}
+
+_BJ_WORDS = {
+    "w": "win",
+    "won": "win",
+    "l": "loss",
+    "lose": "loss",
+    "lost": "loss",
+    "bust": "loss",
+    "p": "push",
+    "tie": "push",
+    "standoff": "push",
+    "bj": "blackjack",
+    "natural": "blackjack",
+    "dw": "double_win",
+    "dl": "double_loss",
+    "dp": "double_push",
+}
+
+_BJ_NET_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
+_BJ_MAX_NET = 4.0  # split once + double both hands, per BlackjackEngine.deal()
+
+
+def _blackjack_from_token(token: str) -> BlackjackOutcome | None:
+    """Map one observed result token to the engine's outcome, or None if it is
+    not a result. Besides the named results, a bare signed number is taken as the
+    net multiplier: a split round can land on ±3 or ±4, which no word names. The
+    engine splits at most once and doubles at most twice, so ±4 is the hard
+    ceiling — anything larger is a typo (a hand total, say), not a net. For the
+    numeric form the staked multiplier is a lower bound: an observer sees the net
+    that came back, not how much went out."""
+    token = token.strip().lower().replace(" ", "_").replace("-", "_")
+    named = _BJ_RESULTS.get(_BJ_WORDS.get(token, token))
+    if named is not None:
+        net, staked, player_bj = named
+        return _blackjack_outcome(net, staked, player_bj)
+    if _BJ_NET_RE.fullmatch(token) and abs(float(token)) <= _BJ_MAX_NET:
+        net = float(token)
+        return _blackjack_outcome(net, max(1.0, abs(net)), split=abs(net) > 2.0)
+    return None
+
+
+class ManualBlackjackReader:
+    """OBSERVER mode for blackjack: the human plays the demo table on basic
+    strategy and types how each hand settled — [w]in / [l]oss / [p]ush / [bj]
+    blackjack, [dw]/[dl]/[dp] for a doubled hand, or a signed number for a split
+    (e.g. '+2', '-1'). One hand = one betting round, matching the engine."""
+
+    PROMPT = "Hand — [w]in/[l]oss/[p]ush/[bj], d[w/l/p] doubled, ±n split (blank/q to end): "
+
+    def __init__(self, read_fn=input, is_demo: bool = True):
+        self._read_fn = read_fn
+        self._is_demo = is_demo
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self) -> BlackjackOutcome | None:
+        raw = self._read_fn(self.PROMPT)
+        if raw is None:
+            return None
+        raw = raw.strip().lower()
+        if raw in ("", "q", "quit", "stop"):
+            return None
+        outcome = _blackjack_from_token(raw)
+        if outcome is None:
+            print(f"  '{raw}' is not a hand result (w/l/p/bj/dw/dl/dp or ±n); try again.")
+            return self.read_next_spin()
+        return outcome
+
+
+class RecordedBlackjackReader:
+    """Replays a fixed list of hand results ('win'/'loss'/'push'/'blackjack'/
+    'double_win'/... or a signed net like '+2') — test double."""
+
+    def __init__(self, results: list[str], is_demo: bool = True):
+        self._results = list(results)
+        self._i = 0
+        self._is_demo = is_demo
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self) -> BlackjackOutcome | None:
+        if self._i >= len(self._results):
+            return None
+        r = self._results[self._i]
+        self._i += 1
+        outcome = _blackjack_from_token(str(r))
+        if outcome is None:
+            raise ValueError(f"Unknown blackjack result: {r!r}")
+        return outcome

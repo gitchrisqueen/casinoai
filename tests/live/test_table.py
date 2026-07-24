@@ -55,6 +55,33 @@ def test_mini_max_is_dynamic():
     assert check.dynamic
 
 
+def test_formula_57_blackjack_stakes_enumerate_and_fit_a_dollar_table():
+    """Formula 57's three modes are a registered machine, so its stakes come from
+    schedule_view: Foundation, Rapid Recovery and Profit Participation combined."""
+    spec = load_spec("strategies/approved/formula-57-blackjack-v2.yaml")
+    units = strategy_unit_stakes(spec)
+    assert units  # enumerable, not dynamic
+    assert {1.0, 1.6, 2.6, 4.2, 6.8, 11.0} <= set(units)  # Foundation ladder
+    assert {2.0, 4.0, 8.0, 16.0} <= set(units)  # Rapid Recovery martingale
+    assert {1.4, 1.2} <= set(units)  # Profit Participation openers
+    # $5 base unit: 1.2u -> $6, 11u -> $55, 16u -> $80
+    assert {6.0, 55.0, 80.0} <= set(currency_stakes(spec))
+
+    table = TableProfile(min_bet=1.0, max_bet=1000.0, chip_denominations=[1, 5, 25, 100, 500])
+    check = check_table(spec, table)
+    assert check.ok and not check.dynamic
+
+
+def test_formula_57_blackjack_flagged_on_five_dollar_chip_table():
+    """The fractional levels ($6, $7, $13, $21 ...) need $1 chips — a $5-chip
+    table can't place them, and the check must say so rather than assume."""
+    spec = load_spec("strategies/approved/formula-57-blackjack-v2.yaml")
+    table = TableProfile(min_bet=5.0, max_bet=500.0, chip_denominations=[5, 25, 100])
+    check = check_table(spec, table)
+    assert not check.ok
+    assert 6.0 in check.not_placeable
+
+
 def test_operator_verify_table_flow(capsys):
     from casinoai.live.operator import verify_table
 

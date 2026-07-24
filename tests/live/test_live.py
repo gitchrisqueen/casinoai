@@ -547,6 +547,132 @@ def test_onetouch_baccarat_result_parsing():
     assert extract_winners_from_frame(cards_only) == ["player"]
 
 
+# -- blackjack live + auto -------------------------------------------------------
+
+
+def _formula57_spec():
+    from casinoai.strategies import load_spec
+
+    return load_spec("strategies/approved/formula-57-blackjack-v2.yaml")
+
+
+def test_manual_blackjack_reader_tokens():
+    from casinoai.live.reader import ManualBlackjackReader
+
+    tape = iter(["w", "loss", "p", "bj", "dw", "dl", "+3", "q"])
+    reader = ManualBlackjackReader(read_fn=lambda _p: next(tape))
+    assert reader.read_next_spin().net_multiplier == 1.0
+    assert reader.read_next_spin().net_multiplier == -1.0
+    assert reader.read_next_spin().net_multiplier == 0.0
+    bj = reader.read_next_spin()
+    assert bj.net_multiplier == 1.5 and bj.player_blackjack  # 3:2, as the engine pays
+    dbl = reader.read_next_spin()
+    assert dbl.net_multiplier == 2.0 and dbl.total_staked_multiplier == 2.0 and dbl.doubled
+    assert reader.read_next_spin().net_multiplier == -2.0
+    split = reader.read_next_spin()
+    assert split.net_multiplier == 3.0 and split.split  # two hands, one doubled
+    assert reader.read_next_spin() is None  # 'q' ends
+
+
+def test_manual_blackjack_reader_reprompts_on_bad_input(capsys):
+    """Unknown input must re-prompt, never crash the operator's session."""
+    from casinoai.live.reader import ManualBlackjackReader
+
+    # '21' is a hand total, not a net — no blackjack round can pay more than ±4
+    tape = iter(["banana", "21", "-", "w"])
+    reader = ManualBlackjackReader(read_fn=lambda _p: next(tape))
+    assert reader.read_next_spin().net_multiplier == 1.0
+    assert capsys.readouterr().out.count("try again") == 3
+
+
+def test_blackjack_reader_emits_the_engine_outcome_type():
+    """Sim/live parity: the reader must emit exactly what BlackjackEngine.deal()
+    emits, so the oracle's settle path cannot tell them apart."""
+    from casinoai.engines.blackjack import BlackjackEngine, BlackjackOutcome
+    from casinoai.live.reader import RecordedBlackjackReader
+
+    live = RecordedBlackjackReader(["blackjack"]).read_next_spin()
+    assert isinstance(live, BlackjackOutcome)
+    assert set(live.model_dump()) == set(BlackjackEngine(seed=1).deal().model_dump())
+    assert BlackjackEngine.settle("hand", 10, live) == pytest.approx(15.0)
+
+
+def test_blackjack_live_session_records_nets():
+    from casinoai.live.reader import RecordedBlackjackReader
+
+    spec = _formula57_spec()
+    # three straight losses take Formula 57 into Rapid Recovery (1,2,4,8,16)
+    reader = RecordedBlackjackReader(["loss", "loss", "loss", "win", "push", "blackjack"])
+    session = run_live_session(
+        spec,
+        reader,
+        NullBetPlacer(),
+        SessionLimits(
+            max_bet_units=100, max_total_stake_units=100, stop_loss_units=1000, max_rounds=100
+        ),
+        now="2026-07-23T00:00:00Z",
+    )
+    assert [r.outcome for r in session.rounds] == ["-1", "-1", "-1", "+1", "+0", "+1.5"]
+    # Foundation 1 -> 1.6 -> 2.6, then Rapid Recovery level 1 after the third loss
+    assert [r.bets[0]["stake_units"] for r in session.rounds][:4] == [1.0, 1.6, 2.6, 1.0]
+    assert session.net_units == pytest.approx(sum(r.net_units for r in session.rounds))
+    assert session.stop_reason == "table unavailable"  # tape ran out
+
+
+def test_recorded_blackjack_reader_rejects_unknown_result():
+    from casinoai.live.reader import RecordedBlackjackReader
+
+    with pytest.raises(ValueError, match="Unknown blackjack result"):
+        RecordedBlackjackReader(["surrendered"]).read_next_spin()
+
+
+def test_default_blackjack_parser_and_frame():
+    from casinoai.live.playwright_adapter import (
+        default_blackjack_parser,
+        extract_blackjack_results_from_frame,
+    )
+
+    assert default_blackjack_parser({"handResult": "WIN"}) == "win"
+    assert default_blackjack_parser({"result": "player bust"}) == "loss"
+    assert default_blackjack_parser({"outcome": "push"}) == "push"
+    assert default_blackjack_parser({"playerResult": "blackjack"}) == "blackjack"
+    assert default_blackjack_parser({"winner": "dealer"}) == "loss"
+    assert default_blackjack_parser({"chat": "hi"}) is None
+    # totals alone are NOT inferred — they can't express a double or a split
+    assert default_blackjack_parser({"playerTotal": 20, "dealerTotal": 18}) is None
+
+    frame = '3:::{"data":{"_type":"HandResult","handResult":"dealer_bust"}}'
+    assert extract_blackjack_results_from_frame(frame) == ["win"]
+    assert extract_blackjack_results_from_frame("2::") == []
+
+
+def test_playwright_blackjack_reader_buffers_frames():
+    """No browser: drive _on_frame directly, as the baccarat test does."""
+    from casinoai.live.playwright_adapter import PlaywrightBlackjackReader
+
+    reader = PlaywrightBlackjackReader(page=None)
+    reader._on_frame('{"handResult":"win"}')
+    reader._on_frame('{"handResult":"push"}')
+    assert reader._pending == ["win", "push"]
+    assert not reader.is_demo()  # not demo until attach() proves it
+
+
+def test_operator_wires_blackjack_readers():
+    from casinoai.live.operator import _auto_reader_for, _manual_reader_for
+    from casinoai.live.playwright_adapter import PlaywrightBlackjackReader
+    from casinoai.live.reader import ManualBlackjackReader
+
+    spec = _formula57_spec()
+    assert isinstance(_manual_reader_for(spec), ManualBlackjackReader)
+    assert isinstance(_auto_reader_for(spec, page=None), PlaywrightBlackjackReader)
+
+
+def test_capture_hit_detection_covers_blackjack():
+    from casinoai.live.operator import default_result_parser_hits
+
+    assert default_result_parser_hits('{"data":{"handResult":"blackjack"}}')
+
+
 def test_baccarat_reader_dedups_resent_results():
     """OneTouch can re-send the last DEAL_DONE; the reader dedups by gameId so a
     hand isn't counted twice, while distinct hands each register."""

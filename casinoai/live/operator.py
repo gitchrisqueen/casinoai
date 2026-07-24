@@ -42,7 +42,12 @@ from casinoai.live.playwright_adapter import (
     OperatorBetPlacer,
     assert_demo_mode,
 )
-from casinoai.live.reader import ManualBaccaratReader, ManualCrapsReader, ManualTableReader
+from casinoai.live.reader import (
+    ManualBaccaratReader,
+    ManualBlackjackReader,
+    ManualCrapsReader,
+    ManualTableReader,
+)
 from casinoai.live.session import run_live_session, save_session
 from casinoai.strategies import load_spec
 from casinoai.strategies.spec import GameType
@@ -56,9 +61,9 @@ def _manual_reader_for(spec):
         return ManualTableReader()
     if spec.game == GameType.CRAPS:
         return ManualCrapsReader()
-    raise SystemExit(
-        f"Manual live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
-    )
+    if spec.game == GameType.BLACKJACK:
+        return ManualBlackjackReader()
+    raise SystemExit(f"Manual live sessions do not support {spec.game.value} yet.")
 
 
 REAL_MONEY_SIGNALS = ("realmode=1", "mode=real", "play=real", "/real")
@@ -221,9 +226,11 @@ def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path
 
 
 def default_result_parser_hits(payload: str) -> bool:
-    """A frame looks like a result if a roulette pocket, baccarat winner, or
-    craps line result can be pulled from it — so `capture` works for any game."""
+    """A frame looks like a result if a roulette pocket, baccarat winner, craps
+    line result, or blackjack hand result can be pulled from it — so `capture`
+    works for any game."""
     from casinoai.live.playwright_adapter import (
+        extract_blackjack_results_from_frame,
         extract_line_results_from_frame,
         extract_pockets_from_frame,
         extract_winners_from_frame,
@@ -233,6 +240,7 @@ def default_result_parser_hits(payload: str) -> bool:
         extract_pockets_from_frame(payload)
         or extract_winners_from_frame(payload)
         or extract_line_results_from_frame(payload)
+        or extract_blackjack_results_from_frame(payload)
     )
 
 
@@ -240,6 +248,7 @@ def _auto_reader_for(spec, page):
     """WebSocket reader matching the strategy's game."""
     from casinoai.live.playwright_adapter import (
         PlaywrightBaccaratReader,
+        PlaywrightBlackjackReader,
         PlaywrightCrapsReader,
         PlaywrightRouletteReader,
     )
@@ -250,9 +259,11 @@ def _auto_reader_for(spec, page):
         return PlaywrightRouletteReader(page)
     if spec.game == GameType.CRAPS:
         return PlaywrightCrapsReader(page)
-    raise SystemExit(
-        f"Auto live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
-    )
+    if spec.game == GameType.BLACKJACK:
+        # The blackjack parser is unverified against any provider — capture the
+        # table's traffic first, or run manual mode.
+        return PlaywrightBlackjackReader(page)
+    raise SystemExit(f"Auto live sessions do not support {spec.game.value} yet.")
 
 
 def _placer_for(spec, chips=None):

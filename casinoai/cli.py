@@ -257,15 +257,15 @@ def _cmd_claims(args: argparse.Namespace) -> int:
 
 def _cmd_live(args: argparse.Namespace) -> int:
     from casinoai.live import SessionLimits
+    from casinoai.live.operator import _manual_reader_for
     from casinoai.live.playwright_adapter import OperatorBetPlacer
-    from casinoai.live.reader import ManualTableReader
     from casinoai.live.session import run_live_session, save_session
     from casinoai.strategies import load_spec
 
     spec = load_spec(Path(args.spec))
     print(f"LIVE/DEMO observer session — {spec.name} v{spec.version} [{spec.game}]")
     print("Demo/free-play only. You place each bet by hand on the demo table,")
-    print("then type the winning pocket here. Nothing is wagered automatically.\n")
+    print("then type each round's result here. Nothing is wagered automatically.\n")
     if not args.i_am_playing_a_free_demo_table:
         print("Refusing to start: pass --i-am-playing-a-free-demo-table to confirm the")
         print("table is in demo/free-play mode and you (a human) are operating it.")
@@ -278,7 +278,7 @@ def _cmd_live(args: argparse.Namespace) -> int:
     )
     session = run_live_session(
         spec,
-        ManualTableReader(),
+        _manual_reader_for(spec),  # the reader must match the spec's game
         OperatorBetPlacer(),
         limits,
         table_url=args.table_url,
