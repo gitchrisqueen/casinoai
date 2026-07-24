@@ -131,6 +131,27 @@ _ADVANCE: dict[str, list[ControlSpec]] = {
         ),
         ControlSpec(name="roll", description="the button that rolls the dice", phase="advance"),
     ],
+    # Blackjack's 'advance' can only DEAL and STAND — a fixed click loop cannot make
+    # the hit/stand/double/split decisions basic strategy requires, so this maps the
+    # minimum deal loop, NOT a strategy-conformant round (see the auto-play note in
+    # configs/table_layouts/README.md).
+    "blackjack": [
+        ControlSpec(
+            name="bet_spot",
+            description="a single betting box on the blackjack felt (e.g. 'CLICK TO PLACE BETS')",
+            phase="advance",
+        ),
+        ControlSpec(
+            name="deal",
+            description="the button that deals the hand — 'Deal' or 'Play'",
+            phase="advance",
+        ),
+        ControlSpec(
+            name="stand",
+            description="the STAND button shown after the deal (often where DEAL was)",
+            phase="advance",
+        ),
+    ],
 }
 
 

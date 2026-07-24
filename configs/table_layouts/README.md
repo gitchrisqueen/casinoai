@@ -72,3 +72,45 @@ about the ones that moved or are new.
 - Physical clicks only advance the demo; recorded P&L is the strategy applied to
   the real outcomes read off the wire.
 - FREE/DEMO tables only, behind a free-mode confirmation.
+
+## Blackjack (Formula 57): what works, and why full auto-play does NOT
+
+The blackjack pipeline was validated end-to-end against **Pragmatic Play**
+"American Blackjack" on casino.guru (6-deck, dealer stands on 17, blackjack pays
+3:2 — the exact rule set `casinoai/engines/blackjack.py` assumes). URL:
+`https://casino.guru/free-casino-games/blackjack/American-Blackjack-play-free`
+(layout id `casino-guru-free-casino-games-blackjack-merican--a1478588`).
+
+**What is verified and working:**
+
+- **Auto-READ.** Pragmatic answers each action over HTTP with a URL-encoded body
+  (`doDeal`/`doStand`/`doDouble`/`doInsurance`), settled at `end=1` with a signed
+  net `win2` over the base bet `bet2`. `default_blackjack_parser` /
+  `_pragmatic_blackjack_net` in `playwright_adapter.py` decode it; win / loss /
+  push / dealer-natural are **capture-verified** (real payloads in
+  `tests/live/test_live.py::test_pragmatic_blackjack_result_is_parsed` and
+  `data/results/live/bj_pragmatic_*.jsonl`).
+- **Manual play** (`--mode manual`) — the human plays and types each result.
+- **A saved calibrated layout** — `startup` (Play-for-free → game tab) plus a
+  minimal `advance` deal loop (`bet_spot`, `deal`, `stand`).
+
+**Why hands-free AUTO-PLAY of Formula 57 is INFEASIBLE as built:** the auto-play
+driver replays a *fixed* click sequence every round. Blackjack is not a fixed
+loop — after the deal the player must choose **hit / stand / double / split**
+based on their cards and the dealer upcard, and Formula 57 explicitly requires
+**basic-strategy** play at every level. The calibrated `advance` can only
+`bet_spot → deal → stand`, i.e. it stands on every hand regardless of the cards.
+That is a legal way to *advance the demo and read outcomes*, but those outcomes do
+**not** come from the strategy's assumed basic-strategy play, so an auto session's
+numbers would not measure Formula 57 — they would measure "always stand", a
+different (worse) game.
+
+**What full auto-play would additionally require:** a real decision layer that
+reads the player's two cards and the dealer upcard off the same result stream (the
+Pragmatic body already carries them — `cp2` = player cards, `cd`/`sd` = dealer),
+maps them through `_basic_strategy()` (already implemented in
+`casinoai/engines/blackjack.py`), and clicks Hit/Stand/Double/Split accordingly —
+including handling the mid-hand states (soft totals, post-split hands, the
+insurance prompt). None of that click-decision logic exists today, and building it
+is a materially larger job than the fixed-loop drivers used for roulette/baccarat.
+Until it does, run Formula 57 blackjack in **manual** mode.

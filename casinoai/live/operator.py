@@ -260,8 +260,8 @@ def _auto_reader_for(spec, page):
     if spec.game == GameType.CRAPS:
         return PlaywrightCrapsReader(page)
     if spec.game == GameType.BLACKJACK:
-        # The blackjack parser is unverified against any provider — capture the
-        # table's traffic first, or run manual mode.
+        # Verified for Pragmatic Play (casino.guru 'American Blackjack'); for any
+        # other provider capture the table's traffic first, or run manual mode.
         return PlaywrightBlackjackReader(page)
     raise SystemExit(f"Auto live sessions do not support {spec.game.value} yet.")
 

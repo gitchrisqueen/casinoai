@@ -646,6 +646,46 @@ def test_default_blackjack_parser_and_frame():
     assert extract_blackjack_results_from_frame("2::") == []
 
 
+def test_pragmatic_blackjack_result_is_parsed():
+    """casino.guru's 'American Blackjack' is Pragmatic Play ('bjmb', 6-deck S17 BJ
+    3:2): it answers over HTTP with a URL-encoded body, settled at end=1 with a
+    signed net winN over the base bet betN. These bodies are REAL captures,
+    trimmed to their result fields — data/results/live/bj_pragmatic_*.jsonl."""
+    from casinoai.live.playwright_adapter import (
+        _pragmatic_blackjack_net,
+        extract_blackjack_results_from_frame,
+    )
+
+    # CAPTURE-VERIFIED: loss (dealer 21), win (dealer bust 25 -> gross win=2.00).
+    loss = "sd=21&stat2=2&end=1&win=0.00&win2=-1.00&bet2=1.00&sp2=13&cp2=47,14"
+    win = "sd=25&stat2=3&end=1&win=2.00&win2=1.00&bet2=1.00&sp2=11&cp2=44,41"
+    assert _pragmatic_blackjack_net(loss) == "loss"
+    assert _pragmatic_blackjack_net(win) == "win"
+    assert extract_blackjack_results_from_frame(loss) == ["loss"]
+    assert extract_blackjack_results_from_frame(win) == ["win"]
+
+    # CAPTURE-VERIFIED: a dealer natural settles on the doInsurance frame; the
+    # unrelated 'insbet2' key must not be mistaken for a hand stake.
+    dealer_natural = "insbet2=0.00&sd=11/21&stat2=2&end=1&win=0.00&win2=-1.00&bet2=1.00&sp2=12"
+    assert _pragmatic_blackjack_net(dealer_natural) == "loss"
+
+    # NOT SETTLED: the deal frame (end=0) carries win2=0.00 but is not a result.
+    deal = "sd=6&stat2=1&end=0&win=0.00&win2=0.00&bet2=1.00&sp2=11"
+    assert _pragmatic_blackjack_net(deal) is None
+    assert extract_blackjack_results_from_frame(deal) == []
+
+    # CAPTURE-VERIFIED double (win=4.00, win2=2.00, bet2=2.00) — documented
+    # limitation: betN is the ESCALATED stake, so win2/bet2 collapses the double
+    # win to a flat 'win'. Auto-play never doubles, so this never misreports live.
+    double_win = "win=4.00&win2=2.00&bet2=2.00&sd=26&sp2=21&stat2=3&end=1"
+    assert _pragmatic_blackjack_net(double_win) == "win"
+
+    # push (win2=0.00 at end=1) — not observed in our short live sample, but the
+    # win2/bet2 semantics are identical; kept as a formula check, not a capture.
+    push = "sd=18&stat2=4&end=1&win=1.00&win2=0.00&bet2=1.00&sp2=18"
+    assert _pragmatic_blackjack_net(push) == "push"
+
+
 def test_playwright_blackjack_reader_buffers_frames():
     """No browser: drive _on_frame directly, as the baccarat test does."""
     from casinoai.live.playwright_adapter import PlaywrightBlackjackReader
