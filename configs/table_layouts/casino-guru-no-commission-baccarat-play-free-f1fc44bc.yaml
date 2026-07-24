@@ -1,0 +1,95 @@
+id: casino-guru-no-commission-baccarat-play-free-f1fc44bc
+name: casino.guru baccarat (OneTouch)
+game: baccarat
+url: https://casino.guru/no-commission-baccarat-play-free
+viewport_w: 1280
+viewport_h: 800
+points:
+  play_for_free:
+    x: 640.0
+    y: 379.0
+    note: play_for_free
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: '#game_link'
+    frame_url: https://casino.guru/free-casino-games/baccarat/no-commission-baccarat-play-free
+  settings:
+    x: 1258.12890625
+    y: 22.37109375
+    note: settings
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: '#nav-opener'
+    frame_url: https://files.onetouch.io/game/baccarat-revamp/latest/nocomm/index.html?config_id=5d5d14c9bf059a00019c8a50&session_id=0e467833-532b-4beb-b1bc-64bb87ca995c&lobby_url=https%3A%2F%2Fwww.onetouch.io%2Fgames%2F&deposit_url=https%3A%2F%2Fonetouch.io&device_platform=desktop&engine_base_url=https://playmode.onetouch.io&sub_partner_id=bitcasino&lang=&ts=1784859234986
+  game_settings:
+    x: 0.0
+    y: 0.0
+    note: game_settings
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: li#settings
+    frame_url: ''
+  turbo:
+    x: 0.0
+    y: 0.0
+    note: turbo
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: .cb_animations-row label
+    frame_url: ''
+  close_settings:
+    x: 0.0
+    y: 0.0
+    note: close_settings
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: li#close
+    frame_url: ''
+  chip_min:
+    x: 558.0
+    y: 732.0
+    note: chip_min
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  player_box:
+    x: 519.0
+    y: 631.0
+    note: player_box
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  deal:
+    x: 1136.0
+    y: 699.0
+    note: deal
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+startup:
+- play_for_free
+- settings
+- game_settings
+- turbo
+- close_settings
+advance:
+- chip_min
+- player_box
+- deal
+click_pause_ms: 700
+settle_ms: 6000
+startup_pause_ms: 2500
+calibrated_at: '2026-07-24T02:18:24+00:00'
+vision_model: ollama-cloud/minimax-m3
+stale: false

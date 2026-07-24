@@ -1,0 +1,24 @@
+{
+  "name": "D'Alembert",
+  "game": "roulette",
+  "source_url": "https://roulette77.us/strategies/dalembert",
+  "source_title": "D'Alembert Roulette System (even-money balanced progression)",
+  "claimed": {
+    "win_rate": null,
+    "dollars_per_hour": null,
+    "dollars_per_day": null,
+    "beats_house_edge": false,
+    "guaranteed": false,
+    "claim_quotes": [
+      "It cannot change the house edge",
+      "does not guarantee a win",
+      "a run in which wins and losses are equal leaves you in profit",
+      "one of the safest, most sustainable systems"
+    ]
+  },
+  "captured_at": "2026-07-24T04:18:17.885043+00:00",
+  "notes": [
+    "NEEDS A REGISTERED MACHINE to backtest: +1 unit after a loss, -1 unit after a win, floored at 1 unit. This additive up/down progression is not expressible by the current schema (multiplier is multiplicative; ladder is a fixed table).",
+    "Source itself concedes 'It cannot change the house edge' \u2014 a rare honest disclaimer among hyped systems."
+  ]
+}

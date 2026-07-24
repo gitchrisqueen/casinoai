@@ -6,6 +6,7 @@ Model choice is always a parameter (default from CASINOAI_DEFAULT_MODEL);
 comparing models is part of the experiment design, so never hardcode one.
 """
 
+import base64
 import json
 import os
 import time
@@ -111,6 +112,21 @@ def _strip_to_json(text: str) -> str:
     return text
 
 
+def _image_part(image: str | Path | bytes) -> dict[str, Any]:
+    """One multimodal image part. Accepts raw PNG bytes or a path to an image;
+    always sent inline as a data URL so no provider needs network access to it."""
+    if isinstance(image, bytes | bytearray):
+        raw, suffix = bytes(image), ".png"
+    else:
+        p = Path(image)
+        raw, suffix = p.read_bytes(), p.suffix.lower()
+    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(
+        suffix, "image/png"
+    )
+    b64 = base64.b64encode(raw).decode()
+    return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+
+
 def _log_call(record: dict[str, Any], log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a") as f:
@@ -127,11 +143,15 @@ def complete(
     max_tokens: int | None = None,
     max_retries: int = 2,
     tag: str | None = None,
+    images: list[str | Path | bytes] | None = None,
     cost_log: Path = DEFAULT_COST_LOG,
 ) -> LLMResponse:
     """Run one completion; validate against `schema` if given, retrying with
     the validation error fed back to the model. Every call (including failed
-    validation attempts) is appended to the cost log."""
+    validation attempts) is appended to the cost log.
+
+    `images` sends a multimodal (vision) request — the prompt plus each image
+    inlined as a data URL. The model must be vision-capable."""
     resolved = resolve_model(model)
     litellm_model, provider_kwargs = _route(resolved)
     messages: list[dict[str, str]] = []
@@ -147,7 +167,12 @@ def complete(
         system = f"{system}\n\n{schema_msg}" if system else schema_msg
     if system:
         messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
+    if images:
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        content.extend(_image_part(img) for img in images)
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": prompt})
 
     total_in = total_out = 0
     total_cost = 0.0

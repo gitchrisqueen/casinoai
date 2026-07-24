@@ -144,6 +144,21 @@ _POCKET_RE = re.compile(r"00|0|[1-9]|[12][0-9]|3[0-6]")
 _GPAS_DELIM = "\xfd"
 
 
+def _playzido_pocket(node: dict) -> str | None:
+    """Playzido (casino.guru 'Casino Roulette') reports the spin as
+    engine.gamestate.draw = {"colour": "Black", "name": "35", "numberIndex": 34}.
+    Keyed on the colour+numberIndex siblings so a stray "name" elsewhere in the
+    payload can't be mistaken for a result."""
+    if not isinstance(node, dict):
+        return None
+    if "name" not in node or "numberIndex" not in node:
+        return None
+    if not any(k in node for k in ("colour", "color")):
+        return None
+    val = str(node.get("name", "")).strip()
+    return val if _POCKET_RE.fullmatch(val) else None
+
+
 def _gpas_pocket(s: str) -> str | None:
     if _GPAS_DELIM not in s:
         return None
@@ -165,7 +180,7 @@ def extract_pockets_from_frame(raw: str, parser: ResultParser = default_result_p
 
     def walk(node):
         if isinstance(node, dict):
-            pocket = parser(node)
+            pocket = _playzido_pocket(node) or parser(node)
             if pocket is not None:
                 found.append(pocket)
             for v in node.values():
@@ -327,6 +342,159 @@ def extract_line_results_from_frame(
     return found
 
 
+# --- blackjack -------------------------------------------------------------------
+
+_BJ_WORDS = {
+    "win": "win",
+    "won": "win",
+    "player_win": "win",
+    "player": "win",
+    "dealer_bust": "win",
+    "loss": "loss",
+    "lose": "loss",
+    "lost": "loss",
+    "bust": "loss",
+    "player_bust": "loss",
+    "dealer_win": "loss",
+    "dealer": "loss",
+    "dealer_blackjack": "loss",
+    "push": "push",
+    "tie": "push",
+    "draw": "push",
+    "standoff": "push",
+    "blackjack": "blackjack",
+    "bj": "blackjack",
+    "natural": "blackjack",
+    "player_blackjack": "blackjack",
+}
+
+
+def default_blackjack_parser(payload: dict) -> str | None:
+    """Best-effort blackjack hand-result parser: reads an explicit result word
+    ('win'/'loss'/'push'/'blackjack') from the key names providers commonly use.
+
+    This is the generic JSON fallback and remains UNVERIFIED against a JSON
+    provider — the live table we cracked (Pragmatic Play, casino.guru 'American
+    Blackjack') answers over HTTP with a URL-encoded body handled by
+    _pragmatic_blackjack_net, which IS verified against real captures. For a new
+    JSON/WebSocket provider, run `--mode capture` and confirm (or replace) this
+    before trusting an auto session's numbers.
+
+    It deliberately does NOT infer a result from player/dealer totals: totals say
+    nothing about doubles or splits, so a doubled hand would be recorded at half
+    its real net and silently corrupt the measurement. Returning None instead
+    makes the gap visible."""
+    for key in (
+        "handResult",
+        "hand_result",
+        "playerResult",
+        "player_result",
+        "result",
+        "outcome",
+        "gameResult",
+        "status",
+        "winner",
+    ):
+        if key in payload:
+            v = str(payload[key]).strip().lower().replace(" ", "_").replace("-", "_")
+            if v in _BJ_WORDS:
+                return _BJ_WORDS[v]
+    return None
+
+
+# Pragmatic Play blackjack ("bjmb", e.g. casino.guru 'American Blackjack' —
+# 6-deck, S17, BJ 3:2) does NOT use a WebSocket or JSON: it answers each action
+# over HTTP with a URL-ENCODED body (doDeal / doHit / doStand / doDouble /
+# doInsurance). A round is SETTLED when `end=1`; the settle frame carries, per
+# hand slot N:
+#   winN  signed NET over the base bet   (loss -1.00, win +1.00, natural +1.50)
+#   betN  total amount staked on the hand (the base bet, or 2x after a double)
+#   win   gross return   ( == betN + winN )
+# so net-per-base-unit = winN / betN holds for ANY base-bet size (which is what
+# the oracle's settle multiplies by the round's stake). Captured live off
+# casino.guru — data/results/live/bj_pragmatic_*.jsonl; see tests/live.
+#
+# LIMITATION (documented, not a bug): when the PLAYER doubles or splits, betN is
+# the ESCALATED stake (2.00 for a $1 double), so winN/betN collapses a double win
+# to +1.0 instead of +2.0 — a settle frame alone cannot separate a "$1 doubled"
+# hand from a "$2 flat" hand (both are betN=2.00, winN=2.00, captured and
+# identical). This is acceptable because the hands-free auto-driver only ever
+# DEALS and STANDS (it makes no double/split/hit decisions), so an escalated
+# stake never occurs in an auto-read session; a human who plays those decisions
+# records them through the manual reader's dw/dl/dp/±n tokens instead.
+# TODO: to auto-READ decision play, track the doDeal base bet in
+# PlaywrightBlackjackReader and divide winN by that stored base.
+_PRAGMATIC_HAND_RE = re.compile(r"(win|bet)(\d+)")
+_PRAGMATIC_MAX_NET = 4.0  # split once + double both hands, matching the reader
+
+
+def _pragmatic_blackjack_net(raw: str) -> str | None:
+    """Map a settled Pragmatic Play blackjack body to a net-result token (for
+    _blackjack_from_token), or None if the frame isn't a completed round (end!=1)
+    or isn't this provider's URL-encoded format. VERIFIED against live captures
+    for win / loss / push and dealer-natural; double-settle is normalised per the
+    documented limitation above."""
+    if "win2=" not in raw or "end=1" not in raw:
+        return None
+    from urllib.parse import parse_qs
+
+    q = parse_qs(raw, keep_blank_values=True)
+    if q.get("end", ["0"])[0] != "1":
+        return None
+    # Pair each hand slot's net (winN) with its stake (betN): one bet spot is one
+    # slot, a split is two. Sum the nets, normalise by the per-hand base bet.
+    wins: dict[str, float] = {}
+    bets: dict[str, float] = {}
+    for key, vals in q.items():
+        m = _PRAGMATIC_HAND_RE.fullmatch(key)
+        if not m:
+            continue
+        try:
+            value = float(vals[0])
+        except (ValueError, IndexError):
+            continue
+        (wins if m.group(1) == "win" else bets)[m.group(2)] = value
+    active = [(wins[i], bets[i]) for i in wins if i in bets and bets[i] > 0]
+    if not active:
+        return None
+    base = min(b for _, b in active)  # per-hand base bet, > 0 by construction
+    net = round(sum(w for w, _ in active) / base * 2) / 2  # snap to the ±0.5 grid
+    named = {1.5: "blackjack", 1.0: "win", 0.0: "push", -1.0: "loss"}
+    if net in named:
+        return named[net]
+    return f"{net:g}" if abs(net) <= _PRAGMATIC_MAX_NET else None
+
+
+def extract_blackjack_results_from_frame(
+    raw: str, parser: ResultParser = default_blackjack_parser
+) -> list[str]:
+    """Pure helper (unit-tested): pull blackjack hand results out of one frame.
+    Handles Pragmatic Play's URL-encoded HTTP body first (see
+    _pragmatic_blackjack_net), then falls back to the JSON/WS framing the other
+    providers use."""
+    token = _pragmatic_blackjack_net(raw)
+    if token is not None:
+        return [token]
+    data = _loads_framed(raw)
+    if data is None:
+        return []
+    found: list[str] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            r = parser(node)
+            if r is not None:
+                found.append(r)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(data)
+    return found
+
+
 class PlaywrightRouletteReader:
     """Reads roulette spin outcomes off the game's WebSocket frames.
 
@@ -452,6 +620,48 @@ class PlaywrightCrapsReader:
         while waited < self._timeout_s:
             if self._pending:
                 return _craps_outcome(LineResult(self._pending.pop(0)))
+            self._page.wait_for_timeout(500)
+            waited += 0.5
+        return None
+
+
+class PlaywrightBlackjackReader:
+    """Reads blackjack hand results off the game's result frames (WebSocket JSON
+    OR Pragmatic Play's URL-encoded HTTP body); emits BlackjackOutcome. One hand
+    = one round, matching the engine.
+
+    VERIFIED for Pragmatic Play (casino.guru 'American Blackjack', 6-deck S17 BJ
+    3:2) via _pragmatic_blackjack_net; for any other provider the generic JSON
+    parser is a best-effort fallback — capture the table's traffic first."""
+
+    def __init__(
+        self, page, parser: ResultParser = default_blackjack_parser, timeout_s: float = 120.0
+    ):
+        self._page = page
+        self._parser = parser
+        self._timeout_s = timeout_s
+        self._pending: list[str] = []
+        self._is_demo = False
+
+    def attach(self, game_url: str) -> None:
+        assert_demo_mode(game_url)
+        self._is_demo = True
+        wire_result_capture(self._page, self._on_frame)
+        self._page.goto(game_url)
+
+    def _on_frame(self, payload) -> None:
+        self._pending.extend(extract_blackjack_results_from_frame(payload, self._parser))
+
+    def is_demo(self) -> bool:
+        return self._is_demo
+
+    def read_next_spin(self):
+        from casinoai.live.reader import _blackjack_from_token
+
+        waited = 0.0
+        while waited < self._timeout_s:
+            if self._pending:
+                return _blackjack_from_token(self._pending.pop(0))
             self._page.wait_for_timeout(500)
             waited += 0.5
         return None

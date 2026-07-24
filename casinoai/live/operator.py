@@ -12,6 +12,18 @@ Modes:
           format — use `capture` first to discover it.
   capture Open the game and log every WebSocket frame to a file so you can find
           the winning-number message and write/verify a parser. No betting.
+  autoplay Hands-free: drive a CALIBRATED demo table — replay the startup
+          sequence (Play-for-free, dialogs, turbo/animations), then advance each
+          round and read outcomes off the wire. The layout is looked up by --url
+          from the registry (configs/table_layouts), so calibrate once per table.
+          FREE/DEMO only; prints a TESTING notice and requires a free-mode
+          confirmation. Physical clicks only advance the demo; measured P&L is
+          the oracle applied to the real outcomes. --sessions N runs a batch.
+
+Calibration (--calibrate) is LLM-driven: a vision model locates each control in a
+screenshot, you confirm the drawn markers, and only what it missed needs a manual
+coordinate. --list-layouts shows every calibrated table and whether it's ready,
+incomplete, or STALE (auto-flagged when a table stops responding).
 
 Hard rules still apply: demo/free-play only (refuses real-money URLs), human
 initiated, hard caps via SessionGuard. Playwright is an optional extra:
@@ -24,12 +36,18 @@ import re
 import sys
 from pathlib import Path
 
+from casinoai.live.autoplay import ControlPoint
 from casinoai.live.guard import SessionLimits
 from casinoai.live.playwright_adapter import (
     OperatorBetPlacer,
     assert_demo_mode,
 )
-from casinoai.live.reader import ManualBaccaratReader, ManualCrapsReader, ManualTableReader
+from casinoai.live.reader import (
+    ManualBaccaratReader,
+    ManualBlackjackReader,
+    ManualCrapsReader,
+    ManualTableReader,
+)
 from casinoai.live.session import run_live_session, save_session
 from casinoai.strategies import load_spec
 from casinoai.strategies.spec import GameType
@@ -43,9 +61,9 @@ def _manual_reader_for(spec):
         return ManualTableReader()
     if spec.game == GameType.CRAPS:
         return ManualCrapsReader()
-    raise SystemExit(
-        f"Manual live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
-    )
+    if spec.game == GameType.BLACKJACK:
+        return ManualBlackjackReader()
+    raise SystemExit(f"Manual live sessions do not support {spec.game.value} yet.")
 
 
 REAL_MONEY_SIGNALS = ("realmode=1", "mode=real", "play=real", "/real")
@@ -208,9 +226,11 @@ def capture(url: str, seconds: int, out_path: Path, headed: bool = True) -> Path
 
 
 def default_result_parser_hits(payload: str) -> bool:
-    """A frame looks like a result if a roulette pocket, baccarat winner, or
-    craps line result can be pulled from it — so `capture` works for any game."""
+    """A frame looks like a result if a roulette pocket, baccarat winner, craps
+    line result, or blackjack hand result can be pulled from it — so `capture`
+    works for any game."""
     from casinoai.live.playwright_adapter import (
+        extract_blackjack_results_from_frame,
         extract_line_results_from_frame,
         extract_pockets_from_frame,
         extract_winners_from_frame,
@@ -220,6 +240,7 @@ def default_result_parser_hits(payload: str) -> bool:
         extract_pockets_from_frame(payload)
         or extract_winners_from_frame(payload)
         or extract_line_results_from_frame(payload)
+        or extract_blackjack_results_from_frame(payload)
     )
 
 
@@ -227,6 +248,7 @@ def _auto_reader_for(spec, page):
     """WebSocket reader matching the strategy's game."""
     from casinoai.live.playwright_adapter import (
         PlaywrightBaccaratReader,
+        PlaywrightBlackjackReader,
         PlaywrightCrapsReader,
         PlaywrightRouletteReader,
     )
@@ -237,9 +259,11 @@ def _auto_reader_for(spec, page):
         return PlaywrightRouletteReader(page)
     if spec.game == GameType.CRAPS:
         return PlaywrightCrapsReader(page)
-    raise SystemExit(
-        f"Auto live sessions support roulette, baccarat, craps; {spec.game.value} not yet wired."
-    )
+    if spec.game == GameType.BLACKJACK:
+        # Verified for Pragmatic Play (casino.guru 'American Blackjack'); for any
+        # other provider capture the table's traffic first, or run manual mode.
+        return PlaywrightBlackjackReader(page)
+    raise SystemExit(f"Auto live sessions do not support {spec.game.value} yet.")
 
 
 def _placer_for(spec, chips=None):
@@ -291,6 +315,341 @@ def run_manual(
     _print_summary(session, path)
 
 
+def _confirm_free_mode(assume_yes: bool = False, read_fn=input) -> bool:
+    """Loud TESTING notice + explicit FREE/DEMO confirmation before auto-play."""
+    from casinoai.live.autoplay import TESTING_BANNER, free_mode_confirmed
+
+    print(TESTING_BANNER)
+    if assume_yes:
+        print("  (--i-am-in-free-mode given; skipping the interactive prompt)\n")
+        return True
+    ans = read_fn("Type 'YES FREE MODE' to confirm the table is FREE/DEMO: ")
+    return free_mode_confirmed(ans)
+
+
+def _confirm_points(layout, names, shot_path, read_fn=input) -> list[str]:
+    """Show the annotated screenshot and take one confirmation for the batch.
+    Returns the names still unresolved (rejected or never found)."""
+    if not names:
+        return []
+    print(f"\n  Proposed {len(names)} control(s) — see {shot_path}")
+    for n in names:
+        pt = layout.points[n]
+        print(f"    {n:<16} ({pt.x:.0f}, {pt.y:.0f})  confidence {pt.confidence:.2f}")
+    ans = (read_fn("  Do these markers land on the right controls? [Y/n]: ") or "").strip().lower()
+    if ans in ("", "y", "yes"):
+        for n in names:
+            layout.points[n].confirmed = True
+        return []
+    # Rejected as a batch — let the operator keep the good ones individually.
+    unresolved: list[str] = []
+    for n in names:
+        keep = (read_fn(f"    keep '{n}'? [Y/n]: ") or "").strip().lower()
+        if keep in ("", "y", "yes"):
+            layout.points[n].confirmed = True
+        else:
+            unresolved.append(n)
+    return unresolved
+
+
+def _manual_points(layout, names, read_fn=input) -> None:
+    """Ask for coordinates only for the controls that are still unresolved."""
+    for n in names:
+        raw = (read_fn(f"    {n} — x,y from the grid screenshot (blank to skip): ") or "").strip()
+        if not raw:
+            layout.points.pop(n, None)
+            continue
+        xs, ys = raw.replace(" ", "").split(",")[:2]
+        layout.points[n] = ControlPoint(
+            x=float(xs), y=float(ys), note=n, source="manual", confidence=1.0, confirmed=True
+        )
+
+
+# Which startup controls exist on which screen. Asking for all of them on the
+# landing page can never work — the game's own settings/turbo don't exist yet.
+_LANDING_CONTROLS = ("play_for_free", "close_dialog")
+# Order matters — this IS the click order for the in-game part of startup:
+# dismiss any dialog, open the menu, open Game settings, toggle turbo/animations,
+# close. Omitting game_settings here silently drops it from the rebuilt sequence
+# and the turbo click then fires before its panel exists.
+_GAME_CONTROLS = ("close_dialog", "settings", "game_settings", "turbo", "close_settings")
+
+
+def _calibrate_phase(
+    page,
+    layout,
+    phase: str,
+    model: str,
+    shots_dir: Path,
+    read_fn=input,
+    only: tuple = (),
+    keep: bool = False,
+) -> None:
+    """DOM first, vision for the rest, manual for anything still missing.
+
+    A DOM hit is deterministic and resize-proof, so it's auto-confirmed; only the
+    vision-proposed pixels need the operator's eyes."""
+    from casinoai.live.dom import find_control
+    from casinoai.live.vision import annotate, controls_for_game, merge_proposal, propose_controls
+
+    specs = controls_for_game(layout.game, phase)
+    if only:
+        specs = [s for s in specs if s.name in only]
+    print(f"[{phase}] locating: {', '.join(s.name for s in specs)}")
+
+    # 1) DOM pass — real elements, across every frame.
+    dom_found: list[str] = []
+    for s in specs:
+        hit = find_control(page, s.name)
+        if hit is None:
+            continue
+        layout.points[s.name] = ControlPoint(
+            x=hit.x,
+            y=hit.y,
+            note=s.name,
+            source="dom",
+            confidence=1.0,
+            confirmed=True,
+            selector=hit.selector,
+            frame_url=hit.frame_url,
+        )
+        dom_found.append(s.name)
+        print(f"  DOM  {s.name:<16} {hit.selector}")
+
+    # 2) Vision pass — only for what the DOM couldn't reach (canvas controls).
+    remaining = [s for s in specs if s.name not in dom_found]
+    written: list[str] = []
+    png = page.screenshot()
+    if remaining:
+        print(f"  asking {model} for: {', '.join(s.name for s in remaining)}")
+        proposal = propose_controls(
+            png, remaining, layout.viewport_w, layout.viewport_h, model=model
+        )
+        written = merge_proposal(layout, proposal, model)
+
+    missed = [s.name for s in remaining if s.name not in written]
+    if written:
+        shot = annotate(page, png, layout, written, shots_dir / f"calibration-{phase}.png")
+        unresolved = _confirm_points(layout, written, shot, read_fn)
+    else:
+        if remaining:
+            print("  The model found none of the remaining controls.")
+        unresolved = []
+
+    # Only what's left needs the human: a grid screenshot + coordinates.
+    todo = [n for n in missed if n not in layout.points] + unresolved
+    todo = [n for n in dict.fromkeys(todo) if _is_required(specs, n) or _wants(n, read_fn)]
+    if todo:
+        from casinoai.live.autoplay import grid_screenshot
+
+        grid = grid_screenshot(page, shots_dir / f"grid-{phase}.png")
+        print(f"  Coordinate grid saved to {grid} — read off the ones below.")
+        _manual_points(layout, todo, read_fn)
+
+    order = [s.name for s in specs if s.name in layout.points]
+    if phase == "startup":
+        # Staged calls each contribute part of the sequence, in screen order.
+        prior = layout.startup if keep else []
+        layout.startup = list(dict.fromkeys([*prior, *order]))
+    else:
+        layout.advance = order
+
+
+def _is_required(specs, name: str) -> bool:
+    return any(s.name == name and s.required for s in specs)
+
+
+def _wants(name: str, read_fn=input) -> bool:
+    ans = read_fn(f"    '{name}' is optional and wasn't found — set it manually? [y/N]: ") or ""
+    return ans.strip().lower() in ("y", "yes")
+
+
+def run_calibrate(
+    spec_path: str,
+    url: str,
+    headed: bool = True,
+    model: str | None = None,
+    registry: Path | None = None,
+):
+    """LLM-driven calibration, stored against the game URL.
+
+    Startup controls are located on the landing page, then replayed to reach the
+    table, where the per-round controls are located. The operator only confirms
+    the markers and fills in whatever the model couldn't see."""
+    from casinoai.live.autoplay import AutoPlayDriver, TableLayout
+    from casinoai.live.layouts import DEFAULT_REGISTRY, find_layout, store_layout
+    from casinoai.live.vision import DEFAULT_VISION_MODEL
+
+    reg = registry or DEFAULT_REGISTRY
+    model = model or DEFAULT_VISION_MODEL
+    sync_playwright = _require_playwright()
+    assert_demo_mode(url)
+    spec = load_spec(spec_path)
+    shots = Path("data/results/live/calibration")
+
+    layout = find_layout(url, reg) or TableLayout(name=_host(url), game=spec.game.value, url=url)
+    layout.game, layout.url = spec.game.value, url
+    layout.stale = False
+
+    pw = sync_playwright().start()
+    browser = pw.chromium.launch(headless=not headed)
+    try:
+        page = browser.new_page(viewport={"width": layout.viewport_w, "height": layout.viewport_h})
+        page.goto(url)
+        page.wait_for_timeout(4000)
+
+        # Staged: a control can only be found on the screen it actually exists on.
+        # 'settings'/'turbo' live INSIDE the loaded game, not on the landing page,
+        # so we calibrate the landing screen, click through, wait for the game to
+        # load (30s+ for these WebGL tables), then calibrate the table screen.
+        driver = AutoPlayDriver(page, layout, validate_advance=False)
+
+        print("\n--- screen 1: landing page ---")
+        _calibrate_phase(page, layout, "startup", model, shots, only=_LANDING_CONTROLS)
+
+        if any(n in layout.points for n in _LANDING_CONTROLS):
+            print("\nClicking through to the game (it opens in a new tab; this is slow) ...")
+            layout.startup = [n for n in _LANDING_CONTROLS if n in layout.points]
+            driver.run_startup()
+            page = driver.page  # the game tab
+            print(f"  now on: {page.url[:90]}")
+
+        print("\n--- screen 2: loaded game ---")
+        _calibrate_phase(page, layout, "startup", model, shots, only=_GAME_CONTROLS, keep=True)
+
+        input("\nAt the BETTING TABLE? Place one bet so 'repeat' works, then press ENTER... ")
+        print("\n--- screen 3: betting table ---")
+        _calibrate_phase(page, layout, "advance", model, shots)
+
+        path = store_layout(layout, reg)
+        print(f"\nSaved layout -> {path}")
+        print(f"  id: {layout.id}")
+        from casinoai.live.layouts import status_of
+
+        print(f"  status: {status_of(layout)}")
+    finally:
+        browser.close()
+
+
+PREFLIGHT_CALIBRATED = """
+The startup sequence (Play-for-free, dialogs, turbo/animations) is calibrated and
+will be replayed automatically. You only need to:
+  1. CONFIRM the table shows FREE / DEMO / FUN play money — not a real balance.
+  2. Check the table looks right after startup runs.
+Nothing is clicked until you press ENTER.
+"""
+
+PREFLIGHT_MANUAL = """
+This table has no calibrated startup sequence, so set it up ONCE by hand
+(it runs unattended after this):
+  1. Click 'Play for free' / dismiss any dialogs and reach the BETTING TABLE.
+  2. CONFIRM the table shows FREE / DEMO / FUN play money — not real balance.
+  3. In the game's settings, turn ON 'Turbo'/'Fast play' and turn OFF animations.
+  4. Place one bet manually so the game's 'repeat bet' has something to repeat.
+Tip: run --calibrate once and even these steps become automatic.
+Take as long as you need — nothing is clicked until you press ENTER.
+"""
+
+
+def run_autoplay(
+    spec_path: str,
+    url: str,
+    layout_path: str | None,
+    limits: SessionLimits,
+    headed: bool = True,
+    assume_yes: bool = False,
+    sessions: int = 1,
+    settle_ms: int | None = None,
+    registry: Path | None = None,
+):
+    """Hands-free demo play: drive the calibrated table to advance each round and
+    read real outcomes off the wire. FREE/DEMO only, gated by a free-mode
+    confirmation; measured P&L is the oracle applied to the real outcomes.
+
+    With `sessions > 1` this runs N sessions back-to-back in ONE browser after a
+    SINGLE setup pause — so turbo/animation settings are made once, not per
+    session. Each session gets a fresh oracle and is saved separately."""
+    from casinoai.live.autoplay import (
+        AdvancingReader,
+        AutoPlayDriver,
+        SilentPlacer,
+        load_layout,
+        resolve_startup,
+    )
+    from casinoai.live.layouts import DEFAULT_REGISTRY, find_layout, mark_stale, status_of
+
+    reg = registry or DEFAULT_REGISTRY
+    if not _confirm_free_mode(assume_yes):
+        print("Aborted: FREE/DEMO mode was not confirmed.")
+        return 1
+
+    sync_playwright = _require_playwright()
+    assert_demo_mode(url)
+    spec = load_spec(spec_path)
+
+    # Explicit --layout wins; otherwise look the table up by its URL.
+    layout = load_layout(layout_path) if layout_path else find_layout(url, reg)
+    if layout is None:
+        print(f"No calibrated layout for {url}", file=sys.stderr)
+        print("Calibrate it once with:  --calibrate", file=sys.stderr)
+        return 1
+    if layout.stale:
+        print(f"⚠ This layout is marked STALE ({status_of(layout)}). Re-run --calibrate.")
+        return 1
+    if settle_ms is not None:  # turbo on? shorten the post-deal wait
+        layout.settle_ms = settle_ms
+    saved: list = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=not headed)
+        page = browser.new_page(viewport={"width": layout.viewport_w, "height": layout.viewport_h})
+        base = _auto_reader_for(spec, page)
+        base.attach(url)
+        has_startup = bool(resolve_startup(layout))
+        print(PREFLIGHT_CALIBRATED if has_startup else PREFLIGHT_MANUAL)
+        # With a calibrated startup and free mode already confirmed there is
+        # nothing left to do by hand, so don't block a scripted/unattended run.
+        if not (assume_yes and has_startup):
+            input(f"Press ENTER to start AUTO-PLAY ({sessions} session(s))... ")
+        driver = AutoPlayDriver(page, layout)  # validates the layout is playable
+        if has_startup:
+            print("Running the calibrated startup sequence (free-play, turbo) ...")
+            driver.run_startup()  # follows the game into its new tab + waits for load
+            print(f"  table ready: {driver.page.url[:90]}")
+        reader = AdvancingReader(base, driver)
+        for i in range(1, sessions + 1):
+            print(f"\n=== session {i}/{sessions} — {spec.name} ===")
+            session = run_live_session(spec, reader, SilentPlacer(), limits, table_url=url)
+            path = save_session(session)
+            _print_summary(session, path)
+            saved.append(session)
+            if session.stop_reason == "table unavailable":
+                # No outcome arrived: usually the site changed and our click points
+                # no longer hit. Record that so the next run tells the operator.
+                print("\nTable stopped responding — ending the batch early.")
+                if not layout_path and mark_stale(url, reg):
+                    print("Marked this layout STALE. Re-calibrate with:  --calibrate")
+                break
+        browser.close()
+    if sessions > 1:
+        _print_batch_summary(saved)
+    return 0
+
+
+def _print_batch_summary(sessions: list) -> None:
+    if not sessions:
+        return
+    nets = [s.net_units for s in sessions]
+    rounds = sum(len(s.rounds) for s in sessions)
+    wins = sum(1 for n in nets if n > 0)
+    print("\n" + "=" * 52)
+    print(f"BATCH: {len(sessions)} sessions, {rounds} rounds total")
+    print(f"  winning sessions: {wins}/{len(sessions)}")
+    print(f"  net per session:  {', '.join(f'{n:+.1f}' for n in nets)}")
+    print(f"  total net:        {sum(nets):+.1f}u   mean: {sum(nets) / len(nets):+.2f}u")
+    print("=" * 52)
+    print("Run `uv run casinoai track` for claimed vs. simulated vs. live.")
+
+
 def _print_summary(session, path):
     print(f"\nSession ended: {session.stop_reason}")
     print(f"  rounds: {len(session.rounds)}  net: {session.net_units:+.1f}u")
@@ -301,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="casinoai.live.operator")
     ap.add_argument("spec", help="Path to an approved spec YAML")
     ap.add_argument("--url", default=None, help="Demo table URL")
-    ap.add_argument("--mode", choices=["manual", "auto", "capture"], default="manual")
+    ap.add_argument("--mode", choices=["manual", "auto", "autoplay", "capture"], default="manual")
     ap.add_argument("--seconds", type=int, default=60, help="capture duration")
     ap.add_argument("--max-bet", type=float, default=8.0)
     ap.add_argument("--max-rounds", type=int, default=200)
@@ -311,6 +670,40 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--table-min", type=float, default=None, help="Table minimum bet")
     ap.add_argument("--table-max", type=float, default=None, help="Table maximum bet")
     ap.add_argument("--skip-table-check", action="store_true", help="Skip stake/table verification")
+    ap.add_argument(
+        "--layout",
+        default=None,
+        help="Layout YAML override (default: looked up from --url in the registry)",
+    )
+    ap.add_argument("--calibrate", action="store_true", help="Calibrate this table, then exit")
+    ap.add_argument(
+        "--model", default=None, help="Vision model for calibration (default CASINOAI_VISION_MODEL)"
+    )
+    ap.add_argument(
+        "--list-layouts", action="store_true", help="List calibrated tables and their status"
+    )
+    ap.add_argument(
+        "--clear-stale",
+        action="store_true",
+        help="Clear this table's STALE flag (use when the fault was elsewhere), then exit",
+    )
+    ap.add_argument(
+        "--i-am-in-free-mode",
+        action="store_true",
+        help="Confirm FREE/DEMO mode non-interactively (autoplay)",
+    )
+    ap.add_argument(
+        "--sessions",
+        type=int,
+        default=1,
+        help="autoplay: run N sessions back-to-back in one browser (one setup pause)",
+    )
+    ap.add_argument(
+        "--settle-ms",
+        type=int,
+        default=None,
+        help="autoplay: override the layout's post-deal wait (lower it with turbo on)",
+    )
     args = ap.parse_args(argv)
 
     limits = SessionLimits(
@@ -321,6 +714,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     headed = not args.headless
 
+    if args.list_layouts:
+        from casinoai.live.layouts import render_registry
+
+        print(render_registry())
+        return 0
+
+    if args.clear_stale:
+        if not args.url:
+            print("--clear-stale needs --url", file=sys.stderr)
+            return 1
+        from casinoai.live.layouts import mark_stale
+
+        path = mark_stale(args.url, stale=False)
+        print(f"cleared STALE -> {path}" if path else "no stored layout for that URL")
+        return 0 if path else 1
+
     if args.mode == "capture":
         if not args.url:
             print("capture mode needs --url", file=sys.stderr)
@@ -328,6 +737,14 @@ def main(argv: list[str] | None = None) -> int:
         out = Path("data/results/live/ws_capture.jsonl")
         capture(args.url, args.seconds, out, headed=headed)
         return 0
+
+    if args.calibrate:
+        if not args.url:
+            print("--calibrate needs --url", file=sys.stderr)
+            return 1
+        run_calibrate(args.spec, args.url, headed=headed, model=args.model)
+        return 0
+
     # Verify the strategy's stakes fit the table (chips/min/max) before playing.
     chips = [float(x) for x in args.chips.split(",")] if args.chips else None
     if not args.skip_table_check:
@@ -340,6 +757,20 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         chips = profile.chip_denominations  # reuse the confirmed chips for bet display
 
+    if args.mode == "autoplay":
+        if not args.url:
+            print("autoplay mode needs --url", file=sys.stderr)
+            return 1
+        return run_autoplay(
+            args.spec,
+            args.url,
+            args.layout,
+            limits,
+            headed=headed,
+            assume_yes=args.i_am_in_free_mode,
+            sessions=args.sessions,
+            settle_ms=args.settle_ms,
+        )
     if args.mode == "auto":
         if not args.url:
             print("auto mode needs --url", file=sys.stderr)

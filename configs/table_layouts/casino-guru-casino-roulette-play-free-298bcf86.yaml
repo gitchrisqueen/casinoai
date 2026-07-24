@@ -1,0 +1,85 @@
+id: casino-guru-casino-roulette-play-free-298bcf86
+name: casino.guru roulette (Playzido)
+game: roulette
+url: https://casino.guru/casino-roulette-play-free
+viewport_w: 1280
+viewport_h: 800
+points:
+  play_for_free:
+    x: 0.0
+    y: 0.0
+    note: play_for_free
+    source: dom
+    confidence: 1.0
+    confirmed: true
+    selector: '#game_link'
+    frame_url: ''
+  settings:
+    x: 99.0
+    y: 685.0
+    note: settings
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  turbo:
+    x: 449.0
+    y: 338.0
+    note: turbo
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  close_settings:
+    x: 1021.0
+    y: 184.0
+    note: close_settings
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  spin:
+    x: 1190.0
+    y: 685.0
+    note: spin
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  first_bet_red:
+    x: 576.0
+    y: 487.0
+    note: RED diamond
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+  first_bet_black:
+    x: 744.0
+    y: 487.0
+    note: BLACK diamond
+    source: manual
+    confidence: 1.0
+    confirmed: true
+    selector: ''
+    frame_url: ''
+startup:
+- play_for_free
+- settings
+- turbo
+- close_settings
+- first_bet_red
+- first_bet_black
+advance:
+- spin
+click_pause_ms: 700
+settle_ms: 7000
+startup_pause_ms: 2500
+calibrated_at: '2026-07-23T22:54:50+00:00'
+vision_model: ''
+stale: false

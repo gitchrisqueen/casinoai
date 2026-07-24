@@ -26,9 +26,13 @@ Monte Carlo backtest and its promoter's claims.
 | Run a session for a **focus strategy** (Power Baccarat / Power Pro) and update tracking | `run_live_session.sh` | **Every session** — this is the one you'll use most |
 | Discover/verify how a demo game reports results (needed for `auto` mode) | `capture_ws.sh` | **Once per new demo table**, before using `auto` |
 | Run a session for **any** approved spec (not just the two focus ones), or use capture mode inline | `run_live_demo.sh` | Occasionally, for arbitrary strategies |
+| **Hands-free** play of a FREE/DEMO table to collect sessions fast | `autoplay.sh` | After a one-time per-table calibration |
+| Collect **N sessions** for one strategy in one browser | `collect_sessions.sh` | The H3b dataset, one game at a time |
+| Collect the **whole H3b dataset** (both strategies) end to end | `collect_all.sh` | The one-command data run |
 
 **Rule of thumb:** `setup_live.sh` once → `run_live_session.sh` for every session.
 Add `capture_ws.sh` once per table only if you want the hands-off `auto` mode.
+Use `autoplay.sh` once you've calibrated a table and want it fully hands-free.
 
 ---
 
@@ -107,6 +111,71 @@ other than the two focus ones, or to invoke `capture` inline.
 # e.g.
 ./scripts/run_live_demo.sh strategies/approved/mini-max-roulette-v2.yaml \
     https://www.roulettesimulator.net/simulators/european-roulette/
+```
+
+## autoplay.sh — hands-free demo play (TESTING ONLY)
+
+Fully automates a **FREE/DEMO** table so you can collect live sessions without
+placing every bet by hand. The tool prints a TESTING notice and **requires you to
+confirm the table is in FREE mode** before it drives anything. Real-money URLs are
+refused, and the same hard bet/round/stop-loss caps apply. Physical clicks only
+*advance the demo*; the recorded P&L is the strategy applied to the **real
+outcomes** read off the wire — identical measurement to manual play.
+
+Because these games render on a canvas inside cross-origin iframes, the click
+positions can't be read from the DOM. Instead a **vision model finds them in a
+screenshot** and you just confirm the markers. Each table is calibrated once and
+stored **keyed by its URL**, so later runs find it automatically:
+
+```bash
+# 1) Calibrate (LLM proposes every control; you confirm, and only fill in misses)
+./scripts/autoplay.sh baccarat "" calibrate
+
+# 2) Play hands-free (verifies stakes fit the table, confirms FREE mode, then runs)
+./scripts/autoplay.sh baccarat "" play 1,5,25,100,500
+```
+
+Calibration also covers the **startup** steps — 'Play for free', dialogs, and the
+turbo / disable-animations settings — so every later run clicks through them for
+you. An uncalibrated **or stale** layout refuses to run (no blind clicking); if a
+site redesign breaks the clicks, auto-play marks the layout STALE and tells you to
+re-calibrate, keeping the points you already confirmed.
+
+```bash
+# what's calibrated, and is it still good?
+uv run python -m casinoai.live.operator strategies/approved/power-baccarat-v2.yaml --list-layouts
+```
+
+See [configs/table_layouts/README.md](../configs/table_layouts/README.md) for the
+control names, `settle_ms` tuning, and the vision-model comparison.
+
+## collect_sessions.sh / collect_all.sh — the H3b data run
+
+Runs N sessions back-to-back for a strategy in **one browser** with **one setup
+pause**, so you configure the game (turbo on, animations off) once — not once per
+session. Each session gets a fresh oracle and is saved separately, then a batch
+rollup prints and tracking refreshes.
+
+```bash
+# one game (default: 10 sessions, default demo URL, chips 1,5,25,100,500)
+./scripts/collect_sessions.sh baccarat
+./scripts/collect_sessions.sh roulette 10
+
+# both strategies end to end
+./scripts/collect_all.sh 10
+```
+
+Both refuse to start if the table isn't calibrated. Override the table limits with
+`TABLE_MIN=`/`TABLE_MAX=` env vars if your table differs from min 1 / max 1000.
+
+**Setup pause:** before any clicking you get an ENTER prompt. If the table's
+startup sequence is calibrated it's replayed for you (Play-for-free, dialogs,
+turbo) and you only confirm FREE/DEMO; otherwise you get the manual checklist.
+Nothing is clicked until you press ENTER. With turbo on, shorten the post-deal wait:
+
+```bash
+uv run python -m casinoai.live.operator strategies/approved/power-baccarat-v2.yaml \
+  --url "<url>" --mode autoplay --sessions 10 --settle-ms 1500
 ```
 
 ---

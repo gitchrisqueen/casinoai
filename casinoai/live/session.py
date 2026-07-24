@@ -28,6 +28,8 @@ def _outcome_token(outcome) -> str:
         return outcome.winner.value
     if hasattr(outcome, "result"):  # craps
         return outcome.result.value
+    if hasattr(outcome, "net_multiplier"):  # blackjack: doubles/splits vary the net
+        return f"{outcome.net_multiplier:+g}"
     return str(outcome)
 
 
