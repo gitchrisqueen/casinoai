@@ -1,0 +1,21 @@
+{
+  "name": "Martingale (on Red)",
+  "game": "roulette",
+  "source_url": "https://www.casino.org/roulette/strategy/martingale/",
+  "source_title": "Martingale Strategy for Roulette (Casino.org)",
+  "claimed": {
+    "win_rate": null,
+    "dollars_per_hour": null,
+    "dollars_per_day": null,
+    "beats_house_edge": null,
+    "guaranteed": true,
+    "claim_quotes": [
+      "It is often called almost fool-proof and a guaranteed win over the very short-term.",
+      "you'll recover any previous losses plus gain a small profit"
+    ]
+  },
+  "captured_at": "2026-07-24T04:18:04.119294+00:00",
+  "notes": [
+    "BACKTESTED by a prior discovery run (registered as 'Martingale on Red'): EV/unit -2.56%, session win rate 38.2%, risk of ruin 58.8%. The 'guaranteed short-term win' is real per session but paid for by rare catastrophic losses; negative-EV overall, matching the house edge."
+  ]
+}

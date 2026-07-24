@@ -1,0 +1,23 @@
+{
+  "name": "1-3-2-6 System",
+  "game": "baccarat",
+  "source_url": "https://casinobeats.com/features/1326-betting-strategy/",
+  "source_title": "The 1-3-2-6 Betting Strategy: Safer Wins in Blackjack, Roulette & Baccarat (CasinoBeats)",
+  "claimed": {
+    "win_rate": null,
+    "dollars_per_hour": null,
+    "dollars_per_day": null,
+    "beats_house_edge": null,
+    "guaranteed": false,
+    "claim_quotes": [
+      "Safer Wins in Blackjack, Roulette & Baccarat.",
+      "If you manage to win four bets in a row, the system rewards you with a tidy profit",
+      "you're rarely playing with your own money at stake",
+      "Even losing the six-unit final bet won't damage your bankroll; you're simply forfeiting profit, not taking a big hit."
+    ]
+  },
+  "captured_at": "2026-07-24T04:17:55.521218+00:00",
+  "notes": [
+    "BACKTESTED via strategies/discovered/one-three-two-six.yaml (ladder [1,3,2,6], advance on win). 200 seeds x 5000 rounds on Banker: EV/unit staked -0.99%, converging to the -1.06% banker house edge. Negative-EV as theory predicts."
+  ]
+}

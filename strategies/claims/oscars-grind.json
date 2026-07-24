@@ -1,0 +1,22 @@
+{
+  "name": "Oscar's Grind",
+  "game": "roulette",
+  "source_url": "https://roulette77.us/strategies/oscar-grind",
+  "source_title": "Oscar's Grind Roulette System \u2014 Test and Analysis (Roulette77)",
+  "claimed": {
+    "win_rate": null,
+    "dollars_per_hour": null,
+    "dollars_per_day": null,
+    "beats_house_edge": null,
+    "guaranteed": false,
+    "claim_quotes": [
+      "all four players finished with profits ranging from $74 to $120",
+      "described as a viable long-term strategy"
+    ]
+  },
+  "captured_at": "2026-07-24T04:18:06.450566+00:00",
+  "notes": [
+    "NEEDS A REGISTERED MACHINE to backtest: the bet stays flat after a loss and rises by +1 unit after a win, capped so a win never overshoots the +1-unit session goal; the session ends at +1u then restarts. This additive, goal-capped state is not expressible by the StrategySpec progressions (flat/multiplier/fibonacci/ladder). A reviewed state machine in casinoai/rules/library.py would be required.",
+    "Promoter 'viable long-term strategy' claim is unmeasured here; house-edge theory predicts negative EV."
+  ]
+}

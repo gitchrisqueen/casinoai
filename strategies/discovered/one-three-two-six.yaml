@@ -1,0 +1,68 @@
+name: 1-3-2-6 System
+version: 1
+game: baccarat
+also_applicable_to:
+- roulette
+- blackjack
+summary: 'A fixed four-step positive (win-based) progression on an even-money bet
+  (here the Banker). Stake the sequence 1, 3, 2, 6 units, advancing one step on each
+  win. Any loss returns to the 1-unit base; completing the fourth step (a win at 6
+  units) banks the cycle and restarts at 1. The largest bet (6) is only reached after
+  three straight wins, so it is funded entirely by prior winnings.'
+table_rules:
+  variant: null
+  min_bet: null
+  max_bet: null
+  notes:
+  - Even-money bet; on baccarat the Banker pays 1:1 less 5% commission and pushes on
+    a tie (a tie is a no-op that does not advance the progression).
+bets:
+- bet_type: banker
+  description: One even-money wager per hand.
+bet_selection:
+  kind: fixed
+entry_conditions:
+- kind: always
+progression:
+  kind: ladder
+  steps:
+  - stake_units: 1.0
+    note: base bet
+  - stake_units: 3.0
+    note: after 1 win
+  - stake_units: 2.0
+    note: after 2 wins
+  - stake_units: 6.0
+    note: after 3 wins
+  advance_on: win
+  retreat_steps: 4
+  win_retreat_map: null
+  reset_at_end: true
+  bust_at_end: false
+bankroll:
+  unit_size: null
+  session_bankroll_units: 200.0
+  stop_loss_units: null
+  stop_win_units: null
+  max_bet_units: null
+  max_rounds: 2000
+state_tracked:
+- current step in the 1-3-2-6 sequence (0-3)
+assumptions:
+- Any loss resets to step 1 (modeled as retreat_steps=4, which floors the index at
+  0); a completed cycle (win at step 4) also resets to step 1.
+- Bet placed on Banker (the lower-house-edge even-money bet); the system is promoted
+  for Player/Banker, roulette red/black, and even-money blackjack interchangeably.
+ambiguities: []
+source:
+  pdf_path: https://casinobeats.com/features/1326-betting-strategy/
+  sha256: web-ingest
+  parser: web-ingest
+approval:
+  approved_by: claude (Phase 8 discovery, review delegated by chris 2026-07-24)
+  approved_at: '2026-07-24T00:00:00+00:00'
+  annotations:
+  - Mechanic fully specified by the Wizard of Odds write-up (bet 1; win->3; win->2;
+    win->6; any loss or a completed cycle returns to 1).
+  - Backtested on Banker; ties push and are treated as no-ops (progression unchanged),
+    matching the source.

@@ -1,0 +1,21 @@
+{
+  "name": "Paroli (Reverse Martingale)",
+  "game": "roulette",
+  "source_url": "https://www.freebets.com/casino/roulette/guides/paroli-reverse-martingale-roulette-strategy/",
+  "source_title": "Paroli (Reverse Martingale) Roulette Strategy (FreeBets)",
+  "claimed": {
+    "win_rate": null,
+    "dollars_per_hour": null,
+    "dollars_per_day": null,
+    "beats_house_edge": null,
+    "guaranteed": false,
+    "claim_quotes": [
+      "like with all strategies winnings are not guaranteed and this system won't make you huge amounts of profit",
+      "The Paroli system does not change the odds of the games you're playing; over a very long timeline the casino will mathematically expect to take a cut of your money, and the Reverse Martingale does not guarantee any profit or 'beat' the game mathematically"
+    ]
+  },
+  "captured_at": "2026-07-24T04:17:57.679985+00:00",
+  "notes": [
+    "BACKTESTED via strategies/discovered/paroli-reverse-martingale.yaml (multiplier x2 on win, reset after 3). 200 seeds x 5000 rounds on Red (European): EV/unit staked -2.29%, converging to the -2.70% even-money house edge. Negative-EV; 'safer than Martingale' refers to loss variance, not to edge."
+  ]
+}

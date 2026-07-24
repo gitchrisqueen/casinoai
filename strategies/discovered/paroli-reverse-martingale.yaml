@@ -1,0 +1,57 @@
+name: Paroli (Reverse Martingale)
+version: 1
+game: roulette
+also_applicable_to: []
+summary: 'Reverse Martingale on an even-money bet (here Red). Flat base bet; after
+  each win double the stake, riding a winning streak. After three consecutive wins
+  bank the profit and drop back to the base bet; any loss also drops back to the base
+  bet. Only the base bet is ever risked from the bankroll — every raise is funded by
+  prior winnings.'
+table_rules:
+  variant: european
+  min_bet: null
+  max_bet: null
+  notes:
+  - Promoters pitch it as a "safer" alternative to the Martingale because losses do
+    not escalate; the underlying even-money bet is unchanged, so the house edge is
+    unchanged.
+bets:
+- bet_type: red
+  description: One even-money wager per spin.
+bet_selection:
+  kind: fixed
+entry_conditions:
+- kind: always
+progression:
+  kind: multiplier
+  factor: 2.0
+  on: win
+  reset_after_steps: 3
+bankroll:
+  unit_size: null
+  session_bankroll_units: 200.0
+  stop_loss_units: null
+  stop_win_units: null
+  max_bet_units: null
+  max_rounds: 2000
+state_tracked:
+- consecutive wins in the current streak (0-3)
+assumptions:
+- 'Reset threshold: the classic Paroli banks after THREE consecutive wins (1->2->4,
+  then back to 1). Some promoters leave the streak length to player discretion; three
+  is the most commonly documented and is used here.'
+- Bet is placed on Red; any single even-money proposition is mechanically identical
+  under a fair wheel.
+ambiguities: []
+source:
+  pdf_path: https://www.freebets.com/casino/roulette/guides/paroli-reverse-martingale-roulette-strategy/
+  sha256: web-ingest
+  parser: web-ingest
+approval:
+  approved_by: claude (Phase 8 discovery, review delegated by chris 2026-07-24)
+  approved_at: '2026-07-24T00:00:00+00:00'
+  annotations:
+  - Reset-after-3-wins chosen as the canonical Paroli; recorded as an assumption because
+    some sources leave the streak length open.
+  - Even-money target Red; distinct from Martingale-on-Red because the progression
+    multiplies on WIN (not loss) and caps at 3 steps.
