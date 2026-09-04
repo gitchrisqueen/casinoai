@@ -63,7 +63,7 @@ uv run casinoai live strategies/approved/power-pro-roulette-v2.yaml --i-am-playi
 - `casinoai/` — the package: LLM gateway, PDF parsing (PyMuPDF4LLM, or Docling when installed), strategy schema, game engines, rule library and oracle, conformance harness, backtester, live/demo adapter, Phase 8 discovery (see [CLAUDE.md](CLAUDE.md) for the module map)
 - `pdfs/` — source strategy documents (roulette, blackjack, craps, baccarat systems). Gitignored (`pdfs/*` in `.gitignore`), so `parse`/`extract` need your own copies.
 - `strategies/approved/` — the five human-approved, versioned strategy specs
-- `strategies/discovered/`, `strategies/claims/` — Phase 8: Phase 8 specs for systems found online, plus recorded promoter claims for those six systems and for the two focus books (Power Baccarat, Power Pro Roulette) (see [docs/phase8_discovery.md](docs/phase8_discovery.md))
+- `strategies/discovered/`, `strategies/claims/` — Phase 8 specs for systems found online, plus recorded promoter claims for those six systems and for the two focus books (Power Baccarat, Power Pro Roulette) (see [docs/phase8_discovery.md](docs/phase8_discovery.md))
 - `configs/table_layouts/` — calibrated click layouts for the demo tables the live adapter has been run against
 - `docs/` — [synthesis.md](docs/synthesis.md) (findings), [live_adapter.md](docs/live_adapter.md), [phase8_discovery.md](docs/phase8_discovery.md)
 - `scripts/` — live/demo session helpers (see [scripts/README.md](scripts/README.md))
