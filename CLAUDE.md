@@ -78,3 +78,11 @@ Key invariant: engines and the live adapter emit the **same typed event-stream s
 - Every simulation/conformance run records: seed, model id, spec version, git SHA — reproducibility is a feature under test.
 - Property-based tests (`hypothesis`) for engine math: payouts, distributions vs. known house edge.
 - Approved `StrategySpec` YAML files are immutable once used in a published run; changes get a new version, never an edit in place.
+
+## Cross-project context
+Global rules for every session live in `~/.claude/CLAUDE.md` (sourced from the CQC Boss Vault, `00-Home/CLAUDE.global.md`). The vault is at `$CQC_VAULT` (fallback: `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/CQC Boss Vault`); read it as plain files.
+- This project's vault note: `60-Projects/Side-Products.md` (section "CasinoAI") (create it per `00-Home/Vault-Conventions.md` if missing).
+- Handoff packets: `80-Handoffs/HO-<date>-<n>-<slug>.md` per `80-Handoffs/Handoff-Protocol.md`.
+- Tracker: none recorded.
+- Other projects: look them up in `00-Home/Source-Map.md`; write anything another project needs to the vault, not to auto-memory.
+- Decisions for Christopher: options with a recommendation, in chat (see `00-Home/Working-With-Christopher.md`).

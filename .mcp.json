@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "obsidianvault": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "${CQC_VAULT}"]}
+  }
+}
