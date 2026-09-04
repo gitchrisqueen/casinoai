@@ -61,9 +61,9 @@ uv run casinoai live strategies/approved/power-pro-roulette-v2.yaml --i-am-playi
 ## Repository layout
 
 - `casinoai/` — the package: LLM gateway, PDF parsing (PyMuPDF4LLM, or Docling when installed), strategy schema, game engines, rule library and oracle, conformance harness, backtester, live/demo adapter, Phase 8 discovery (see [CLAUDE.md](CLAUDE.md) for the module map)
-- `pdfs/` — source strategy documents (roulette, blackjack, craps, baccarat systems). Gitignored: the books are copyrighted and are not redistributed here, so `parse`/`extract` need your own copies.
+- `pdfs/` — source strategy documents (roulette, blackjack, craps, baccarat systems). Gitignored (`pdfs/*` in `.gitignore`), so `parse`/`extract` need your own copies.
 - `strategies/approved/` — the five human-approved, versioned strategy specs
-- `strategies/discovered/`, `strategies/claims/` — Phase 8: specs and recorded promoter claims for systems found online (see [docs/phase8_discovery.md](docs/phase8_discovery.md))
+- `strategies/discovered/`, `strategies/claims/` — Phase 8: Phase 8 specs for systems found online, plus recorded promoter claims for those six systems and for the two focus books (Power Baccarat, Power Pro Roulette) (see [docs/phase8_discovery.md](docs/phase8_discovery.md))
 - `configs/table_layouts/` — calibrated click layouts for the demo tables the live adapter has been run against
 - `docs/` — [synthesis.md](docs/synthesis.md) (findings), [live_adapter.md](docs/live_adapter.md), [phase8_discovery.md](docs/phase8_discovery.md)
 - `scripts/` — live/demo session helpers (see [scripts/README.md](scripts/README.md))
@@ -91,12 +91,12 @@ Phases 0–7 of [PLAN.md](PLAN.md) are built and tested (LLM gateway, PDF parsin
 | Power Pro Roulette | roulette | −2.21% | 84.0% | 58u | 14.6% |
 | Mini-Max Roulette | roulette | −3.03% | 29.4% | 21u | 70.5% |
 
-The systems change *variance*, never *expectation*: a high session win rate (Power Baccarat wins 88% of sessions) is funded by rare catastrophic losses. Each EV lands near its game's theoretical house edge. Procedural systems are translated into reviewed, unit-tested state machines in [`casinoai/rules/library.py`](casinoai/rules/library.py), verified against the worked examples in their books where the book gives one (Formula 57, Power Baccarat, Mini-Max).
+The systems change *variance*, never *expectation*: a high session win rate (Power Baccarat wins 88% of sessions) is funded by rare catastrophic losses. Each EV lands near its game's theoretical house edge. Procedural systems are translated into reviewed, unit-tested state machines in [`casinoai/rules/library.py`](casinoai/rules/library.py), three of them (Formula 57, Power Baccarat, Mini-Max) are replayed against their books' worked tables in `tests/rules/`; the Super Fibonacci and Power Pro machines are unit-tested against the rules as approved.
 
 **Conformance (H2):** no model reaches the 99% decision-match target unaided on the complex state machines. Feeding the oracle's own state back to the agent each round (`--ledger facts`) lifts pooled conformance from 77% to 91%. The per-model matrix (deepseek-v4-flash, gpt-5-mini, kimi-k2.6) is in [docs/synthesis.md](docs/synthesis.md).
 
-**Live demo play (H3b):** 20 human-supervised sessions on free-play demo tables, 10 each for Power Baccarat (10/10 sessions won, +87.7u) and Power Pro Roulette (8/10 won, −43.8u). The high win rates come from asymmetric stop-win/stop-loss rules, not an edge; the results are consistent with the backtests. Details and caveats (20 sessions is underpowered) are in [docs/synthesis.md](docs/synthesis.md). The session recordings live in `data/` and are not committed.
+**Live demo play (H3b):** 20 sessions on free-play demo tables, played by the hands-free auto-play adapter after a human started each run and confirmed FREE mode, 10 each for Power Baccarat (10/10 sessions won, +87.7u) and Power Pro Roulette (8/10 won, −43.8u). The high win rates come from asymmetric stop-win/stop-loss rules, not an edge; the results are consistent with the backtests. Details and caveats (20 sessions is underpowered) are in [docs/synthesis.md](docs/synthesis.md). The session recordings live in `data/` and are not committed.
 
-**Phase 8 (discovery from online sources)** has had one pass: two systems found online (1-3-2-6, Paroli) were specced and backtested (both negative-EV); three more (Oscar's Grind, Labouchère, D'Alembert) need new rule-library machines before they can be measured and are recorded as unmeasured. See [docs/phase8_discovery.md](docs/phase8_discovery.md).
+**Phase 8 (discovery from online sources)** has measured three online systems, all negative-EV: 1-3-2-6 (−0.99%) and Paroli (−2.29%) specced under `strategies/discovered/`, plus Martingale on Red (−2.56%) from an earlier discovery run; three more (Oscar's Grind, Labouchère, D'Alembert) need new rule-library machines before they can be measured and are recorded as unmeasured. See [docs/phase8_discovery.md](docs/phase8_discovery.md).
 
-Not done: the three Phase 8 systems above, blackjack live play (not wired; its decisions are not observable as a single outcome token), a craps strategy (readers exist, no approved spec), and any live session beyond the 20 recorded.
+Not done: the three Phase 8 systems above, hands-free blackjack auto-play (the Pragmatic Play demo reader and manual play are capture-verified, but the fixed-click driver cannot make hit/stand/double/split decisions, so Formula 57 runs in manual mode only; see [configs/table_layouts/README.md](configs/table_layouts/README.md)), a craps strategy (readers exist, no approved spec), and any live session beyond the 20 recorded.

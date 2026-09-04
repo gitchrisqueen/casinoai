@@ -37,8 +37,9 @@ then human-reviewed and approved.
   dropped, not faked.
 - Every real book came back with a `custom`/procedural progression the generic
   schema couldn't express. Those were translated by hand into reviewed,
-  unit-tested state machines in `casinoai/rules/library.py`, each **verified
-  against the book's own worked examples** (e.g. Power Baccarat's 14-round table
+  unit-tested state machines in `casinoai/rules/library.py`, three of them
+  (Formula 57, Power Baccarat, Mini-Max) **verified against the book's own
+  worked examples** (e.g. Power Baccarat's 14-round table
   replays move-for-move). This is where extraction fidelity is actually pinned
   down — machine-checkable against the source.
 - Every ambiguity resolution is recorded in the approved spec's annotations, so
@@ -148,7 +149,7 @@ outcome.)
 
 ## H3a — Monte Carlo backtest: how do the systems actually perform?
 
-**Every system is negative-EV, each landing on its game's house edge.** 2,000
+**Every system is negative-EV, each landing near its game's house edge.** 2,000
 seeded sessions per strategy (~400k rounds total), ranked by EV per unit staked:
 
 | Strategy | Game | EV/unit | Session win rate | Worst drawdown | Risk of ruin |
@@ -236,6 +237,6 @@ The mission was never to find a winning system — it was to build the machinery
 that turns any strategy document into honest, reproducible numbers. That
 machinery works: five hyped books went in as PDFs and came out as measured,
 negative-EV strategies with auditable extraction, oracle-verified rules, and
-million-round backtests. The house edge won every time, precisely as theory
+2,000-session backtests (~400k rounds in total). The house edge won every time, precisely as theory
 predicts. The next frontier (Phase 8) is pointing the same pipeline at
 strategies discovered online, building a growing scoreboard of tested claims.
