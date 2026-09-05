@@ -187,10 +187,13 @@ uv run python -m casinoai.live.operator strategies/approved/power-baccarat-v2.ya
 | Roulette | ✅ | ✅ | Power Pro Roulette |
 | Baccarat | ✅ | ✅ | Power Baccarat |
 | Craps | ✅ | ✅ | *(no approved craps strategy yet)* |
+| Blackjack | ✅ | ✅ (HTTP, auto-read only) | Formula 57 — manual mode only |
 
 Craps readers are wired and tested; point the operator at a craps spec when one
-is approved. Blackjack live play isn't wired (its play decisions are the engine's
-basic strategy, not observable as a single outcome token).
+is approved. Blackjack: manual play and auto-read are capture-verified (Pragmatic
+Play American Blackjack on casino.guru); hands-free auto-play is not, because
+Formula 57 needs per-hand basic-strategy decisions the fixed click loop cannot
+make. See `configs/table_layouts/README.md`.
 
 ## Related commands (not scripts, but the payoff)
 
